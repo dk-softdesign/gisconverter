@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import L from "leaflet";
-import { GeoJSON as GeoJsonLayer, MapContainer, useMap } from "react-leaflet";
+import { GeoJSON as GeoJsonLayer, MapContainer, TileLayer, useMap } from "react-leaflet";
 
 import "leaflet/dist/leaflet.css";
 
@@ -9,8 +9,6 @@ interface GeoJsonMapProps {
   version: number;
 }
 
-// DXF coordinates are arbitrary drawing units, not WGS84 lon/lat, so we use
-// Leaflet's flat CRS.Simple plane instead of a geographic basemap.
 function FitBounds({ featureCollection }: { featureCollection: GeoJSON.FeatureCollection }) {
   const map = useMap();
 
@@ -27,13 +25,11 @@ function FitBounds({ featureCollection }: { featureCollection: GeoJSON.FeatureCo
 
 export function GeoJsonMap({ featureCollection, version }: GeoJsonMapProps) {
   return (
-    <MapContainer
-      key={version}
-      crs={L.CRS.Simple}
-      center={[0, 0]}
-      zoom={0}
-      className="h-full w-full"
-    >
+    <MapContainer key={version} center={[0, 0]} zoom={2} className="h-full w-full">
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors"
+      />
       <GeoJsonLayer data={featureCollection} />
       <FitBounds featureCollection={featureCollection} />
     </MapContainer>

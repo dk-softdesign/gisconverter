@@ -1,8 +1,50 @@
 import { Helper } from "dxf";
+import proj4 from "proj4";
+
+import { SUPPORTED_SOURCE_CRS } from "#/lib/crs";
 
 export interface DxfConversionResult {
   featureCollection: GeoJSON.FeatureCollection;
   warnings: string[];
+}
+
+const WGS84 = "EPSG:4326";
+
+let crsDefsRegistered = false;
+function ensureCrsDefsRegistered() {
+  if (crsDefsRegistered) return;
+  for (const crs of SUPPORTED_SOURCE_CRS) {
+    proj4.defs(crs.code, crs.proj4);
+  }
+  crsDefsRegistered = true;
+}
+
+function reprojectPosition(position: GeoJSON.Position, sourceCrs: string): GeoJSON.Position {
+  const [x, y, ...rest] = position;
+  const [lon, lat] = proj4(sourceCrs, WGS84, [x, y]);
+  return rest.length > 0 ? [lon, lat, ...rest] : [lon, lat];
+}
+
+// The DXF entities this module produces only ever become one of these three
+// geometry types (see the feature-building loop below).
+type SupportedGeometry = GeoJSON.Point | GeoJSON.LineString | GeoJSON.Polygon;
+
+function reprojectGeometry(geometry: SupportedGeometry, sourceCrs: string): SupportedGeometry {
+  if (geometry.type === "Point") {
+    return { ...geometry, coordinates: reprojectPosition(geometry.coordinates, sourceCrs) };
+  }
+  if (geometry.type === "LineString") {
+    return {
+      ...geometry,
+      coordinates: geometry.coordinates.map((p) => reprojectPosition(p, sourceCrs)),
+    };
+  }
+  return {
+    ...geometry,
+    coordinates: geometry.coordinates.map((ring) =>
+      ring.map((p) => reprojectPosition(p, sourceCrs)),
+    ),
+  };
 }
 
 interface DxfTransform {
@@ -67,7 +109,9 @@ function isClosedRing(vertices: [number, number][]): boolean {
   return Math.abs(x1 - x2) < 1e-9 && Math.abs(y1 - y2) < 1e-9;
 }
 
-export function convertDxfToGeoJson(dxfText: string): DxfConversionResult {
+export function convertDxfToGeoJson(dxfText: string, sourceCrs: string): DxfConversionResult {
+  ensureCrsDefsRegistered();
+
   const helper = new Helper(dxfText);
   if (!helper.parsed) {
     throw new Error("Could not parse DXF file");
@@ -119,8 +163,16 @@ export function convertDxfToGeoJson(dxfText: string): DxfConversionResult {
     warnings.push("No convertible geometry was found in this DXF file.");
   }
 
+  const reprojected =
+    sourceCrs === WGS84
+      ? features
+      : features.map((feature) => ({
+          ...feature,
+          geometry: reprojectGeometry(feature.geometry as SupportedGeometry, sourceCrs),
+        }));
+
   return {
-    featureCollection: { type: "FeatureCollection", features },
+    featureCollection: { type: "FeatureCollection", features: reprojected },
     warnings,
   };
 }

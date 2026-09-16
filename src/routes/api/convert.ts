@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 
+import { DEFAULT_SOURCE_CRS, isSupportedSourceCrs } from "#/lib/crs";
 import { convertDxfToGeoJson } from "#/lib/dxf-to-geojson";
 
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
@@ -25,10 +26,20 @@ export const Route = createFileRoute("/api/convert")({
           return Response.json({ error: "File is too large (max 25MB)." }, { status: 413 });
         }
 
+        const sourceCrs = formData.get("sourceCrs");
+        const crs =
+          typeof sourceCrs === "string" && sourceCrs.length > 0 ? sourceCrs : DEFAULT_SOURCE_CRS;
+        if (!isSupportedSourceCrs(crs)) {
+          return Response.json(
+            { error: `Unsupported source coordinate system: ${crs}` },
+            { status: 400 },
+          );
+        }
+
         const text = await file.text();
 
         try {
-          const result = convertDxfToGeoJson(text);
+          const result = convertDxfToGeoJson(text, crs);
           return Response.json(result);
         } catch (error) {
           return Response.json(

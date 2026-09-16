@@ -5,7 +5,15 @@ import { Loader2, UploadCloud } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert";
 import { Button } from "#/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#/components/ui/select";
 import { GeoJsonMap } from "#/components/geojson-map";
+import { DEFAULT_SOURCE_CRS, SUPPORTED_SOURCE_CRS } from "#/lib/crs";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -16,6 +24,7 @@ interface ConvertResponse {
 
 function Home() {
   const [file, setFile] = useState<File | null>(null);
+  const [sourceCrs, setSourceCrs] = useState(DEFAULT_SOURCE_CRS);
   const [status, setStatus] = useState<"idle" | "converting" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ConvertResponse | null>(null);
@@ -29,6 +38,7 @@ function Home() {
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("sourceCrs", sourceCrs);
 
     try {
       const response = await fetch("/api/convert", { method: "POST", body: formData });
@@ -99,6 +109,28 @@ function Home() {
             {file && <span className="text-sm text-muted-foreground">{file.name}</span>}
           </div>
 
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium" htmlFor="source-crs">
+              Source coordinate system
+            </label>
+            <Select value={sourceCrs} onValueChange={setSourceCrs}>
+              <SelectTrigger id="source-crs" className="w-full sm:w-100">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SUPPORTED_SOURCE_CRS.map((crs) => (
+                  <SelectItem key={crs.code} value={crs.code}>
+                    {crs.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              DXF files don&apos;t embed a coordinate system, so tell us which one the file uses.
+              The output GeoJSON is always reprojected to WGS 84 (EPSG:4326).
+            </p>
+          </div>
+
           <div className="flex gap-3">
             <Button
               type="button"
@@ -141,8 +173,8 @@ function Home() {
             <CardTitle>Preview</CardTitle>
             <CardDescription>
               {result.featureCollection.features.length} feature
-              {result.featureCollection.features.length === 1 ? "" : "s"}. DXF drawing units are
-              shown as-is (not reprojected to real-world coordinates).
+              {result.featureCollection.features.length === 1 ? "" : "s"}, reprojected to WGS 84
+              (EPSG:4326).
             </CardDescription>
           </CardHeader>
           <CardContent>
