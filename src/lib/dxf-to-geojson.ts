@@ -67,6 +67,9 @@ interface DxfEntity {
   y?: number;
   layer?: string;
   transforms?: DxfTransform[];
+  block?: string;
+  tag?: string;
+  text?: { string?: string };
 }
 
 // Entity types whose geometry `Helper#toPolylines` already resolves to line
@@ -107,6 +110,47 @@ function isClosedRing(vertices: [number, number][]): boolean {
   const [x1, y1] = vertices[0];
   const [x2, y2] = vertices[vertices.length - 1];
   return Math.abs(x1 - x2) < 1e-9 && Math.abs(y1 - y2) < 1e-9;
+}
+
+// An INSERT (a block placed on the drawing, e.g. a valve or tree symbol) can
+// be followed by one ATTRIB entity per named attribute the block defines
+// (e.g. DIAMETER, MATERIAL, ID) — these hold the real per-instance values a
+// user typed in when placing that symbol. ATTDEF, in contrast, only lives
+// inside the block *definition* as a template/default and carries no
+// per-instance data, so there's nothing useful to pull out of it.
+//
+// The `dxf` package doesn't link an ATTRIB back to its owning INSERT, but
+// ATTRIB entities always immediately follow their INSERT in the raw entity
+// list, so we recover the association positionally. This only covers
+// top-level inserts (not one block referencing another), which covers the
+// common case of attributed point symbols placed directly on the drawing.
+function extractAttributedInsertFeatures(entities: DxfEntity[]): GeoJSON.Feature[] {
+  const features: GeoJSON.Feature[] = [];
+
+  for (let i = 0; i < entities.length; i++) {
+    const insert = entities[i];
+    if (insert.type !== "INSERT" || typeof insert.x !== "number" || typeof insert.y !== "number") {
+      continue;
+    }
+
+    const attributes: Record<string, string> = {};
+    let j = i + 1;
+    while (j < entities.length && entities[j].type === "ATTRIB") {
+      const tag = entities[j].tag;
+      if (tag) attributes[tag] = entities[j].text?.string ?? "";
+      j++;
+    }
+
+    if (Object.keys(attributes).length === 0) continue;
+
+    features.push({
+      type: "Feature",
+      properties: { ...attributes, block: insert.block ?? null, layer: insert.layer ?? null },
+      geometry: { type: "Point", coordinates: [insert.x, insert.y] },
+    });
+  }
+
+  return features;
 }
 
 export function convertDxfToGeoJson(dxfText: string, sourceCrs: string): DxfConversionResult {
@@ -156,10 +200,13 @@ export function convertDxfToGeoJson(dxfText: string, sourceCrs: string): DxfConv
         properties: { layer: entity.layer ?? null },
         geometry: { type: "Point", coordinates },
       });
-    } else if (!CURVE_ENTITY_TYPES.has(entity.type)) {
+    } else if (entity.type !== "ATTRIB" && !CURVE_ENTITY_TYPES.has(entity.type)) {
       skippedTypes.add(entity.type);
     }
   }
+
+  const rawEntities = (helper.parsed.entities ?? []) as unknown as DxfEntity[];
+  features.push(...extractAttributedInsertFeatures(rawEntities));
 
   if (skippedTypes.size > 0) {
     warnings.push(`Skipped unsupported entity types: ${[...skippedTypes].sort().join(", ")}`);

@@ -45,11 +45,12 @@ function pointToColoredMarker(feature: GeoJSON.Feature, latlng: L.LatLng) {
   });
 }
 
-// Built as a DOM node (not an HTML string) so a layer name from an
-// untrusted DXF file can never be interpreted as markup by Leaflet's popup.
+// Built as DOM nodes (not an HTML string) so a layer name or attribute value
+// from an untrusted DXF file can never be interpreted as markup by Leaflet's
+// popup.
 function bindInspectPopup(feature: GeoJSON.Feature, layer: Layer) {
   const container = document.createElement("div");
-  container.className = "text-sm";
+  container.className = "grid gap-1 text-sm";
 
   const title = document.createElement("div");
   title.className = "font-medium";
@@ -60,6 +61,24 @@ function bindInspectPopup(feature: GeoJSON.Feature, layer: Layer) {
   subtitle.className = "text-muted-foreground";
   subtitle.textContent = feature.geometry.type;
   container.appendChild(subtitle);
+
+  // Other properties (e.g. DXF block attributes like DIAMETER, MATERIAL)
+  const otherEntries = Object.entries(feature.properties ?? {}).filter(
+    ([key, value]) => key !== "layer" && value != null && value !== "",
+  );
+  if (otherEntries.length > 0) {
+    const table = document.createElement("div");
+    table.className = "mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 border-t pt-1";
+    for (const [key, value] of otherEntries) {
+      const keyEl = document.createElement("span");
+      keyEl.className = "text-muted-foreground";
+      keyEl.textContent = key;
+      const valueEl = document.createElement("span");
+      valueEl.textContent = String(value);
+      table.append(keyEl, valueEl);
+    }
+    container.appendChild(table);
+  }
 
   layer.bindPopup(container);
 }
