@@ -126,6 +126,15 @@ export async function convertExcelToGeoJson(
     );
   }
 
+  // These columns are fully represented by the feature's geometry, so don't
+  // duplicate them into properties too.
+  const geometryColumnNames = new Set<string>();
+  if (geomColumnName !== undefined) geometryColumnNames.add(geomColumnName);
+  if (coordinateColumns) {
+    geometryColumnNames.add(coordinateColumns.x);
+    geometryColumnNames.add(coordinateColumns.y);
+  }
+
   const warnings: string[] = [];
   const features: GeoJSON.Feature[] = [];
   let unparseableGeomCount = 0;
@@ -135,16 +144,16 @@ export async function convertExcelToGeoJson(
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
 
-    const properties: Record<string, string | number | boolean | null> = {};
+    const rowValues: Record<string, string | number | boolean | null> = {};
     for (const [colNumber, name] of columns) {
-      properties[name] = cellValue(row.getCell(colNumber).value);
+      rowValues[name] = cellValue(row.getCell(colNumber).value);
     }
-    if (Object.values(properties).every((value) => value === null || value === "")) return;
+    if (Object.values(rowValues).every((value) => value === null || value === "")) return;
 
     let geometry: GeoJSON.Geometry | null = null;
 
     if (geomColumnName !== undefined) {
-      const raw = properties[geomColumnName];
+      const raw = rowValues[geomColumnName];
       const parsed = parseGeomCell(raw);
       if (parsed) {
         geometry = parsed.geometry;
@@ -153,8 +162,8 @@ export async function convertExcelToGeoJson(
         unparseableGeomCount++;
       }
     } else if (coordinateColumns) {
-      const x = properties[coordinateColumns.x];
-      const y = properties[coordinateColumns.y];
+      const x = rowValues[coordinateColumns.x];
+      const y = rowValues[coordinateColumns.y];
       if (typeof x === "number" && typeof y === "number") {
         geometry = { type: "Point", coordinates: [x, y] };
       } else {
@@ -163,6 +172,12 @@ export async function convertExcelToGeoJson(
     }
 
     if (!geometry) return;
+
+    const properties: Record<string, string | number | boolean | null> = {};
+    for (const [key, value] of Object.entries(rowValues)) {
+      if (!geometryColumnNames.has(key)) properties[key] = value;
+    }
+
     features.push({ type: "Feature", properties, geometry });
   });
 
