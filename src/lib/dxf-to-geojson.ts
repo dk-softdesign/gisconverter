@@ -222,7 +222,16 @@ export function convertDxfToGeoJson(dxfText: string, sourceCrs: string): DxfConv
         properties: { layer: entity.layer ?? null },
         geometry: { type: "Point", coordinates },
       });
-    } else if (entity.type !== "ATTRIB" && !CURVE_ENTITY_TYPES.has(entity.type)) {
+    } else if (
+      entity.type !== "ATTRIB" &&
+      entity.type !== "ATTDEF" &&
+      !CURVE_ENTITY_TYPES.has(entity.type)
+    ) {
+      // ATTRIB is handled separately (see extractAttributedInsertFeatures).
+      // ATTDEF is just the block's attribute *template* (tag + default/
+      // prompt), never per-instance data, and it always accompanies any
+      // block that has attributes — so it's expected, not a real omission,
+      // and flagging it here would just be noise on every attributed file.
       skippedTypes.add(entity.type);
     }
   }
