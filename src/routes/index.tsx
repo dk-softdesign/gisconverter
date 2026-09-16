@@ -14,6 +14,7 @@ import {
 } from "#/components/ui/select";
 import { GeoJsonMap } from "#/components/geojson-map";
 import { DEFAULT_SOURCE_CRS, SUPPORTED_SOURCE_CRS } from "#/lib/crs";
+import { cn } from "#/lib/utils";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -29,7 +30,20 @@ function Home() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ConvertResponse | null>(null);
   const [version, setVersion] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  function selectFile(next: File | null) {
+    if (next && !next.name.toLowerCase().endsWith(".dxf")) {
+      setError("Only .dxf files are supported right now.");
+      setStatus("error");
+      return;
+    }
+    setFile(next);
+    setResult(null);
+    setError(null);
+    setStatus("idle");
+  }
 
   async function handleConvert() {
     if (!file) return;
@@ -84,29 +98,39 @@ function Home() {
           <CardDescription>Currently supported: DXF → GeoJSON.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div>
             <input
               ref={inputRef}
               type="file"
               accept=".dxf"
               className="hidden"
-              onChange={(e) => {
-                setFile(e.target.files?.[0] ?? null);
-                setResult(null);
-                setError(null);
-                setStatus("idle");
-              }}
+              onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
             />
-            <Button
+            <button
               type="button"
-              variant="outline"
               onClick={() => inputRef.current?.click()}
-              className="gap-2"
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                selectFile(e.dataTransfer.files?.[0] ?? null);
+              }}
+              className={cn(
+                "flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-8 text-center transition-colors",
+                isDragging ? "border-primary bg-primary/5" : "border-input hover:bg-accent/50",
+              )}
             >
-              <UploadCloud className="size-4" />
-              {file ? "Choose a different file" : "Choose DXF file"}
-            </Button>
-            {file && <span className="text-sm text-muted-foreground">{file.name}</span>}
+              <UploadCloud className="size-8 text-muted-foreground" />
+              <p className="text-sm">
+                <span className="font-medium">Drag and drop a .dxf file here</span>, or click to
+                browse.
+              </p>
+              {file && <span className="text-sm text-muted-foreground">{file.name}</span>}
+            </button>
           </div>
 
           <div className="flex flex-col gap-1.5">
