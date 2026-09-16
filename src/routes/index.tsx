@@ -97,8 +97,8 @@ function Home() {
   function selectFile(next: File | null) {
     if (next) {
       const name = next.name.toLowerCase();
-      if (!name.endsWith(".dxf") && !name.endsWith(".zip")) {
-        setError("Only .dxf and .zip (Shapefile) files are supported right now.");
+      if (!name.endsWith(".dxf") && !name.endsWith(".zip") && !name.endsWith(".xlsx")) {
+        setError("Only .dxf, .zip (Shapefile), and .xlsx files are supported right now.");
         setStatus("error");
         return;
       }
@@ -143,7 +143,7 @@ function Home() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${file?.name.replace(/\.(dxf|zip)$/i, "") ?? "converted"}.geojson`;
+    link.download = `${file?.name.replace(/\.(dxf|zip|xlsx)$/i, "") ?? "converted"}.geojson`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -154,7 +154,7 @@ function Home() {
         <div>
           <h1 className="text-4xl font-bold">GIS Converter</h1>
           <p className="mt-2 text-lg text-muted-foreground">
-            Convert a DXF or Shapefile (zipped) to GeoJSON and preview it on a map.
+            Convert a DXF, Shapefile (zipped), or Excel file to GeoJSON and preview it on a map.
           </p>
         </div>
         <ClientOnly>
@@ -165,14 +165,16 @@ function Home() {
       <Card>
         <CardHeader>
           <CardTitle>Convert a file</CardTitle>
-          <CardDescription>Currently supported: DXF, Shapefile (.zip) → GeoJSON.</CardDescription>
+          <CardDescription>
+            Currently supported: DXF, Shapefile (.zip), Excel (.xlsx) → GeoJSON.
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div>
             <input
               ref={inputRef}
               type="file"
-              accept=".dxf,.zip"
+              accept=".dxf,.zip,.xlsx"
               className="hidden"
               onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
             />
@@ -197,7 +199,7 @@ function Home() {
               <UploadCloud className="size-8 text-muted-foreground" />
               <p className="text-sm">
                 <span className="font-medium">
-                  Drag and drop a .dxf or .zip (Shapefile) file here
+                  Drag and drop a .dxf, .zip (Shapefile), or .xlsx file here
                 </span>
                 , or click to browse.
               </p>
@@ -222,8 +224,9 @@ function Home() {
               </SelectContent>
             </Select>
             <p className="text-sm text-muted-foreground">
-              Used when the file doesn&apos;t specify its own coordinate system — always for DXF, or
-              for a Shapefile only if it has no .prj file. The output GeoJSON is always in WGS 84
+              Used when the file doesn&apos;t specify its own coordinate system — always for DXF;
+              for a Shapefile only if it has no .prj file; for Excel only if its geom column (or
+              coordinate columns) don&apos;t declare one. The output GeoJSON is always in WGS 84
               (EPSG:4326).
             </p>
           </div>
