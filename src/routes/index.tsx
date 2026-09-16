@@ -12,9 +12,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select";
+import { FeatureList } from "#/components/feature-list";
 import { GeoJsonMap } from "#/components/geojson-map";
 import { LayerLegend } from "#/components/layer-legend";
 import { ThemeToggle } from "#/components/theme-toggle";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { DEFAULT_SOURCE_CRS, SUPPORTED_SOURCE_CRS, isSupportedSourceCrs } from "#/lib/crs";
 import { layerNameOf } from "#/lib/layer-colors";
 import { cn } from "#/lib/utils";
@@ -149,20 +151,22 @@ function Home() {
   }
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6 p-8">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-bold">GIS Converter</h1>
-          <p className="mt-2 text-lg text-muted-foreground">
-            Convert a DXF, Shapefile (zipped), or Excel file to GeoJSON and preview it on a map.
-          </p>
+    <div className="flex w-full flex-col gap-6 p-8">
+      <div className="mx-auto w-full max-w-4xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-4xl font-bold">GIS Converter</h1>
+            <p className="mt-2 text-lg text-muted-foreground">
+              Convert a DXF, Shapefile (zipped), or Excel file to GeoJSON and preview it on a map.
+            </p>
+          </div>
+          <ClientOnly>
+            <ThemeToggle />
+          </ClientOnly>
         </div>
-        <ClientOnly>
-          <ThemeToggle />
-        </ClientOnly>
       </div>
 
-      <Card>
+      <Card className="mx-auto w-full max-w-4xl">
         <CardHeader>
           <CardTitle>Convert a file</CardTitle>
           <CardDescription>
@@ -281,17 +285,28 @@ function Home() {
             {layers.length > 1 && (
               <LayerLegend layers={layers} hiddenLayers={hiddenLayers} onToggle={toggleLayer} />
             )}
-            <div className="h-125 overflow-hidden rounded-lg border">
-              <ClientOnly
-                fallback={
-                  <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                    Loading map…
-                  </div>
-                }
-              >
-                <GeoJsonMap featureCollection={visibleFeatureCollection} version={mapVersion} />
-              </ClientOnly>
-            </div>
+            <Tabs defaultValue="map">
+              <TabsList>
+                <TabsTrigger value="map">Map</TabsTrigger>
+                <TabsTrigger value="list">List</TabsTrigger>
+              </TabsList>
+              <TabsContent value="map">
+                <div className="h-125 overflow-hidden rounded-lg border">
+                  <ClientOnly
+                    fallback={
+                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                        Loading map…
+                      </div>
+                    }
+                  >
+                    <GeoJsonMap featureCollection={visibleFeatureCollection} version={mapVersion} />
+                  </ClientOnly>
+                </div>
+              </TabsContent>
+              <TabsContent value="list">
+                <FeatureList featureCollection={visibleFeatureCollection} />
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
       )}
