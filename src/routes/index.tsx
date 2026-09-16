@@ -12,9 +12,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select";
+import { BulkEditDialog } from "#/components/bulk-edit-dialog";
 import { FeatureList } from "#/components/feature-list";
 import { GeoJsonMap } from "#/components/geojson-map";
 import { LayerLegend } from "#/components/layer-legend";
+import { PropertyEditDialog } from "#/components/property-edit-dialog";
 import { ThemeToggle } from "#/components/theme-toggle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { DEFAULT_SOURCE_CRS, SUPPORTED_SOURCE_CRS, isSupportedSourceCrs } from "#/lib/crs";
@@ -39,6 +41,11 @@ function Home() {
   const [version, setVersion] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
+  const [selectedFeatures, setSelectedFeatures] = useState<Set<GeoJSON.Feature>>(new Set());
+  const [editingFeature, setEditingFeature] = useState<GeoJSON.Feature | null>(null);
+  const [editSessionId, setEditSessionId] = useState(0);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkEditSessionId, setBulkEditSessionId] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -96,6 +103,76 @@ function Home() {
     });
   }
 
+  const existingPropertyKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const feature of visibleFeatureCollection.features) {
+      for (const key of Object.keys(feature.properties ?? {})) keys.add(key);
+    }
+    return [...keys].sort();
+  }, [visibleFeatureCollection]);
+
+  function toggleFeatureSelection(feature: GeoJSON.Feature) {
+    setSelectedFeatures((prev) => {
+      const next = new Set(prev);
+      if (next.has(feature)) next.delete(feature);
+      else next.add(feature);
+      return next;
+    });
+  }
+
+  function toggleAllSelection() {
+    setSelectedFeatures((prev) => {
+      const features = visibleFeatureCollection.features;
+      const allSelected = features.length > 0 && features.every((f) => prev.has(f));
+      return allSelected ? new Set() : new Set(features);
+    });
+  }
+
+  function openEditDialog(feature: GeoJSON.Feature) {
+    setEditingFeature(feature);
+    setEditSessionId((id) => id + 1);
+  }
+
+  function updateFeatureProperties(
+    target: GeoJSON.Feature,
+    properties: Record<string, string | number | boolean | null>,
+  ) {
+    setResult((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        featureCollection: {
+          ...prev.featureCollection,
+          features: prev.featureCollection.features.map((f) =>
+            f === target ? { ...f, properties } : f,
+          ),
+        },
+      };
+    });
+  }
+
+  function applyBulkEdit(key: string, value: string | number | boolean | null) {
+    setResult((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        featureCollection: {
+          ...prev.featureCollection,
+          features: prev.featureCollection.features.map((f) =>
+            selectedFeatures.has(f) ? { ...f, properties: { ...f.properties, [key]: value } } : f,
+          ),
+        },
+      };
+    });
+    setSelectedFeatures(new Set());
+    setBulkEditOpen(false);
+  }
+
+  function openBulkEdit() {
+    setBulkEditOpen(true);
+    setBulkEditSessionId((id) => id + 1);
+  }
+
   function selectFile(next: File | null) {
     if (next) {
       const name = next.name.toLowerCase();
@@ -129,6 +206,7 @@ function Home() {
       }
       setResult(data as ConvertResponse);
       setHiddenLayers(new Set());
+      setSelectedFeatures(new Set());
       setVersion((v) => v + 1);
       setStatus("idle");
     } catch (err) {
@@ -303,13 +381,58 @@ function Home() {
                   </ClientOnly>
                 </div>
               </TabsContent>
-              <TabsContent value="list">
-                <FeatureList featureCollection={visibleFeatureCollection} />
+              <TabsContent value="list" className="flex flex-col gap-2">
+                {selectedFeatures.size > 0 && (
+                  <div className="flex items-center justify-between rounded-lg border bg-muted/50 px-3 py-2">
+                    <span className="text-sm">{selectedFeatures.size} selected</span>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedFeatures(new Set())}
+                      >
+                        Clear
+                      </Button>
+                      <Button type="button" size="sm" onClick={openBulkEdit}>
+                        Edit {selectedFeatures.size} selected
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                <FeatureList
+                  featureCollection={visibleFeatureCollection}
+                  selectedFeatures={selectedFeatures}
+                  onToggleFeature={toggleFeatureSelection}
+                  onToggleAll={toggleAllSelection}
+                  onEditFeature={openEditDialog}
+                />
               </TabsContent>
             </Tabs>
           </CardContent>
         </Card>
       )}
+
+      <PropertyEditDialog
+        key={editSessionId}
+        feature={editingFeature}
+        open={editingFeature !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingFeature(null);
+        }}
+        onSave={(properties) => {
+          if (editingFeature) updateFeatureProperties(editingFeature, properties);
+          setEditingFeature(null);
+        }}
+      />
+      <BulkEditDialog
+        key={bulkEditSessionId}
+        open={bulkEditOpen}
+        count={selectedFeatures.size}
+        existingKeys={existingPropertyKeys}
+        onOpenChange={setBulkEditOpen}
+        onApply={applyBulkEdit}
+      />
     </div>
   );
 }
