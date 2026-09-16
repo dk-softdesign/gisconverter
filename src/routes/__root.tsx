@@ -1,5 +1,6 @@
 import {
   HeadContent,
+  Link,
   ScriptOnce,
   Scripts,
   createRootRouteWithContext,
@@ -7,6 +8,7 @@ import {
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 
+import { Button } from "#/components/ui/button";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 
 import appCss from "../styles.css?url";
@@ -38,8 +40,23 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
       },
     ],
   }),
+  notFoundComponent: NotFound,
   shellComponent: RootDocument,
 });
+
+function NotFound() {
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-4 p-8 text-center">
+      <h1 className="text-4xl font-bold">404</h1>
+      <p className="text-lg text-muted-foreground">This page doesn&apos;t exist.</p>
+      <Button asChild>
+        <Link to="/" className="text-primary-foreground!">
+          Go back home
+        </Link>
+      </Button>
+    </div>
+  );
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
