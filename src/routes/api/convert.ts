@@ -2,9 +2,19 @@ import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 
 import { DEFAULT_SOURCE_CRS, isSupportedSourceCrs } from "#/lib/crs";
-import { convertDxfToGeoJson } from "#/lib/dxf-to-geojson";
+import { convertDxfToGeoJson, type DxfConversionResult } from "#/lib/dxf-to-geojson";
+import {
+  convertShapefileToGeoJson,
+  type ShapefileConversionResult,
+} from "#/lib/shapefile-to-geojson";
 
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+
+function jsonResponse(result: DxfConversionResult | ShapefileConversionResult) {
+  return Response.json(result, {
+    headers: { "Content-Type": "application/geo+json; charset=utf-8" },
+  });
+}
 
 export const Route = createFileRoute("/api/convert")({
   server: {
@@ -16,9 +26,12 @@ export const Route = createFileRoute("/api/convert")({
         if (!(file instanceof File)) {
           return Response.json({ error: "No file was provided." }, { status: 400 });
         }
-        if (!file.name.toLowerCase().endsWith(".dxf")) {
+        const fileName = file.name.toLowerCase();
+        const isDxf = fileName.endsWith(".dxf");
+        const isZip = fileName.endsWith(".zip");
+        if (!isDxf && !isZip) {
           return Response.json(
-            { error: "Only .dxf files are supported right now." },
+            { error: "Only .dxf and .zip (Shapefile) files are supported right now." },
             { status: 400 },
           );
         }
@@ -36,16 +49,16 @@ export const Route = createFileRoute("/api/convert")({
           );
         }
 
-        const text = await file.text();
-
         try {
-          const result = convertDxfToGeoJson(text, crs);
-          return Response.json(result, {
-            headers: { "Content-Type": "application/geo+json; charset=utf-8" },
-          });
+          if (isDxf) {
+            const text = await file.text();
+            return jsonResponse(convertDxfToGeoJson(text, crs));
+          }
+          const buffer = await file.arrayBuffer();
+          return jsonResponse(await convertShapefileToGeoJson(buffer, crs, file.name));
         } catch (error) {
           return Response.json(
-            { error: error instanceof Error ? error.message : "Failed to convert this DXF file." },
+            { error: error instanceof Error ? error.message : "Failed to convert this file." },
             { status: 422 },
           );
         }

@@ -11,3 +11,6 @@ dist-ssr
 .vinxi
 __unconfig*
 todos.json
+
+# Local sample/test files (real customer data, not part of the app)
+/source_files/
