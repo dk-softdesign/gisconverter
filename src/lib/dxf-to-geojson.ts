@@ -120,11 +120,17 @@ export function convertDxfToGeoJson(dxfText: string, sourceCrs: string): DxfConv
   const warnings: string[] = [];
   const features: GeoJSON.Feature[] = [];
 
+  const denormalised = (helper.denormalised ?? []) as unknown as DxfEntity[];
+
+  // `toPolylines()` maps 1:1 over the same denormalised entity list (in the
+  // same order), so we zip them by index to recover each polyline's real
+  // layer name. `polyline.layer` is only the DXF's LAYER *table* entry,
+  // which isn't guaranteed to exist for every layer name actually used.
   const { polylines } = helper.toPolylines() as unknown as { polylines: DxfPolyline[] };
-  for (const polyline of polylines) {
+  for (const [index, polyline] of polylines.entries()) {
     const vertices = polyline.vertices;
     if (vertices.length < 2) continue;
-    const layer = polyline.layer?.name ?? null;
+    const layer = denormalised[index]?.layer ?? null;
     if (isClosedRing(vertices)) {
       features.push({
         type: "Feature",
@@ -140,7 +146,6 @@ export function convertDxfToGeoJson(dxfText: string, sourceCrs: string): DxfConv
     }
   }
 
-  const denormalised = (helper.denormalised ?? []) as unknown as DxfEntity[];
   const skippedTypes = new Set<string>();
   for (const entity of denormalised) {
     if (entity.type === "POINT") {

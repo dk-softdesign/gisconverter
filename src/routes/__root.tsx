@@ -1,4 +1,9 @@
-import { HeadContent, Scripts, createRootRouteWithContext } from "@tanstack/react-router";
+import {
+  HeadContent,
+  ScriptOnce,
+  Scripts,
+  createRootRouteWithContext,
+} from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 
@@ -38,9 +43,18 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
+        <ScriptOnce>
+          {`(function () {
+            try {
+              var stored = localStorage.getItem('theme');
+              var isDark = stored ? stored === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+              if (isDark) document.documentElement.classList.add('dark');
+            } catch (e) {}
+          })();`}
+        </ScriptOnce>
       </head>
       <body>
         {children}
