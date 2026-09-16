@@ -135,7 +135,7 @@ function Home() {
   function downloadGeoJson() {
     if (!result) return;
     const blob = new Blob([JSON.stringify(result.featureCollection, null, 2)], {
-      type: "application/geo+json",
+      type: "application/geo+json; charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");

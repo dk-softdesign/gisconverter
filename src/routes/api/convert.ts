@@ -40,7 +40,9 @@ export const Route = createFileRoute("/api/convert")({
 
         try {
           const result = convertDxfToGeoJson(text, crs);
-          return Response.json(result);
+          return Response.json(result, {
+            headers: { "Content-Type": "application/geo+json; charset=utf-8" },
+          });
         } catch (error) {
           return Response.json(
             { error: error instanceof Error ? error.message : "Failed to convert this DXF file." },

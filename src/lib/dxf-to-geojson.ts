@@ -105,6 +105,28 @@ function applyTransforms(x: number, y: number, transforms: DxfTransform[] = []):
   return [px, py];
 }
 
+// DXF text (layer names, ATTRIB values, ...) is written codepage-independent:
+// any character outside plain ASCII is escaped as \U+XXXX (a 4-hex-digit
+// Unicode code point) rather than relying on the file's byte encoding. Some
+// exporters emit a lowercase \u+ instead, so accept both. This turns e.g.
+// "\U+0054\U+0052\U+0041\U+00C9" back into "TRACÉ".
+const DXF_UNICODE_ESCAPE = /\\[uU]\+([0-9a-fA-F]{4})/g;
+
+function decodeDxfText(text: string): string {
+  return text.replace(DXF_UNICODE_ESCAPE, (_match, hex: string) =>
+    String.fromCharCode(parseInt(hex, 16)),
+  );
+}
+
+function decodeProperties(properties: GeoJSON.GeoJsonProperties): GeoJSON.GeoJsonProperties {
+  if (!properties) return properties;
+  const decoded: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(properties)) {
+    decoded[decodeDxfText(key)] = typeof value === "string" ? decodeDxfText(value) : value;
+  }
+  return decoded;
+}
+
 function isClosedRing(vertices: [number, number][]): boolean {
   if (vertices.length < 4) return false;
   const [x1, y1] = vertices[0];
@@ -215,10 +237,15 @@ export function convertDxfToGeoJson(dxfText: string, sourceCrs: string): DxfConv
     warnings.push("No convertible geometry was found in this DXF file.");
   }
 
+  const decoded = features.map((feature) => ({
+    ...feature,
+    properties: decodeProperties(feature.properties),
+  }));
+
   const reprojected =
     sourceCrs === WGS84
-      ? features
-      : features.map((feature) => ({
+      ? decoded
+      : decoded.map((feature) => ({
           ...feature,
           geometry: reprojectGeometry(feature.geometry as SupportedGeometry, sourceCrs),
         }));
