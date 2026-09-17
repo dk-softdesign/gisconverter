@@ -1,7 +1,3 @@
-# syntax=docker/dockerfile:1
-#
-# Node version below should track .nvmrc.
-
 FROM node:24.21.0-alpine AS base
 WORKDIR /app
 

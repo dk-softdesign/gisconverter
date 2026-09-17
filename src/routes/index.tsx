@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
-import { Loader2, UploadCloud } from "lucide-react";
+import { CheckCircle2, Loader2, UploadCloud } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert";
 import { Button } from "#/components/ui/button";
@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { BulkEditDialog } from "#/components/bulk-edit-dialog";
+import { FeatureFilterBar, type PropertyFilter } from "#/components/feature-filter-bar";
 import { FeatureList } from "#/components/feature-list";
 import { GeoJsonMap } from "#/components/geojson-map";
 import { LayerLegend } from "#/components/layer-legend";
@@ -32,6 +33,11 @@ interface ConvertResponse {
 
 const SOURCE_CRS_STORAGE_KEY = "gisconverter:sourceCrs";
 
+function stringifyPropertyValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  return String(value);
+}
+
 function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [sourceCrs, setSourceCrsState] = useState(DEFAULT_SOURCE_CRS);
@@ -46,6 +52,9 @@ function Home() {
   const [editSessionId, setEditSessionId] = useState(0);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [bulkEditSessionId, setBulkEditSessionId] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [propertyFilters, setPropertyFilters] = useState<PropertyFilter[]>([]);
+  const [isUploadCollapsed, setIsUploadCollapsed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -111,6 +120,36 @@ function Home() {
     return [...keys].sort();
   }, [visibleFeatureCollection]);
 
+  const filteredFeatureCollection = useMemo((): GeoJSON.FeatureCollection => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query && propertyFilters.length === 0) return visibleFeatureCollection;
+    return {
+      type: "FeatureCollection",
+      features: visibleFeatureCollection.features.filter((feature) => {
+        const properties = feature.properties ?? {};
+        if (query) {
+          const matchesSearch = Object.values(properties).some((value) =>
+            stringifyPropertyValue(value).toLowerCase().includes(query),
+          );
+          if (!matchesSearch) return false;
+        }
+        return propertyFilters.every((filter) =>
+          stringifyPropertyValue(properties[filter.key])
+            .toLowerCase()
+            .includes(filter.value.toLowerCase()),
+        );
+      }),
+    };
+  }, [visibleFeatureCollection, searchQuery, propertyFilters]);
+
+  function addPropertyFilter(key: string, value: string) {
+    setPropertyFilters((prev) => [...prev, { id: crypto.randomUUID(), key, value }]);
+  }
+
+  function removePropertyFilter(id: string) {
+    setPropertyFilters((prev) => prev.filter((filter) => filter.id !== id));
+  }
+
   function toggleFeatureSelection(feature: GeoJSON.Feature) {
     setSelectedFeatures((prev) => {
       const next = new Set(prev);
@@ -122,7 +161,7 @@ function Home() {
 
   function toggleAllSelection() {
     setSelectedFeatures((prev) => {
-      const features = visibleFeatureCollection.features;
+      const features = filteredFeatureCollection.features;
       const allSelected = features.length > 0 && features.every((f) => prev.has(f));
       return allSelected ? new Set() : new Set(features);
     });
@@ -207,8 +246,11 @@ function Home() {
       setResult(data as ConvertResponse);
       setHiddenLayers(new Set());
       setSelectedFeatures(new Set());
+      setSearchQuery("");
+      setPropertyFilters([]);
       setVersion((v) => v + 1);
       setStatus("idle");
+      setIsUploadCollapsed(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to convert this file.");
       setStatus("error");
@@ -245,98 +287,125 @@ function Home() {
       </div>
 
       <Card className="mx-auto w-full max-w-4xl">
-        <CardHeader>
-          <CardTitle>Convert a file</CardTitle>
-          <CardDescription>
-            Currently supported: DXF, Shapefile (.zip), Excel (.xlsx) → GeoJSON.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div>
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".dxf,.zip,.xlsx"
-              className="hidden"
-              onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
-            />
-            <button
-              type="button"
-              onClick={() => inputRef.current?.click()}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setIsDragging(true);
-              }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragging(false);
-                selectFile(e.dataTransfer.files?.[0] ?? null);
-              }}
-              className={cn(
-                "flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-8 text-center transition-colors",
-                isDragging ? "border-primary bg-primary/5" : "border-input hover:bg-accent/50",
-              )}
-            >
-              <UploadCloud className="size-8 text-muted-foreground" />
-              <p className="text-sm">
-                <span className="font-medium">
-                  Drag and drop a .dxf, .zip (Shapefile), or .xlsx file here
-                </span>
-                , or click to browse.
-              </p>
-              {file && <span className="text-sm text-muted-foreground">{file.name}</span>}
-            </button>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium" htmlFor="source-crs">
-              Source coordinate system
-            </label>
-            <Select value={sourceCrs} onValueChange={setSourceCrs}>
-              <SelectTrigger id="source-crs" className="w-full sm:w-100">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SUPPORTED_SOURCE_CRS.map((crs) => (
-                  <SelectItem key={crs.code} value={crs.code}>
-                    {crs.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-sm text-muted-foreground">
-              Used when the file doesn&apos;t specify its own coordinate system — always for DXF;
-              for a Shapefile only if it has no .prj file; for Excel only if its geom column (or
-              coordinate columns) don&apos;t declare one. The output GeoJSON is always in WGS 84
-              (EPSG:4326).
-            </p>
-          </div>
-
-          <div className="flex gap-3">
-            <Button
-              type="button"
-              disabled={!file || status === "converting"}
-              onClick={handleConvert}
-            >
-              {status === "converting" && <Loader2 className="size-4 animate-spin" />}
-              Convert to GeoJSON
-            </Button>
-            {result && (
-              <Button type="button" variant="secondary" onClick={downloadGeoJson}>
+        {isUploadCollapsed && result ? (
+          <CardContent className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm">
+              <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />
+              <span className="font-medium">{file?.name}</span>
+              <span className="text-muted-foreground">converted to GeoJSON</span>
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="secondary" size="sm" onClick={downloadGeoJson}>
                 Download GeoJSON
               </Button>
-            )}
-          </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsUploadCollapsed(false)}
+              >
+                Change file
+              </Button>
+            </div>
+          </CardContent>
+        ) : (
+          <>
+            <CardHeader>
+              <CardTitle>Convert a file</CardTitle>
+              <CardDescription>
+                Currently supported: DXF, Shapefile (.zip), Excel (.xlsx) → GeoJSON.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <div>
+                <input
+                  ref={inputRef}
+                  type="file"
+                  accept=".dxf,.zip,.xlsx"
+                  className="hidden"
+                  onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
+                />
+                <button
+                  type="button"
+                  onClick={() => inputRef.current?.click()}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragging(true);
+                  }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    selectFile(e.dataTransfer.files?.[0] ?? null);
+                  }}
+                  className={cn(
+                    "flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-8 text-center transition-colors",
+                    isDragging ? "border-primary bg-primary/5" : "border-input hover:bg-accent/50",
+                  )}
+                >
+                  <UploadCloud className="size-8 text-muted-foreground" />
+                  <p className="text-sm">
+                    <span className="font-medium">
+                      Drag and drop a .dxf, .zip (Shapefile), or .xlsx file here
+                    </span>
+                    , or click to browse.
+                  </p>
+                  {file && <span className="text-sm text-muted-foreground">{file.name}</span>}
+                </button>
+              </div>
 
-          {status === "error" && error && (
-            <Alert variant="destructive">
-              <AlertTitle>Conversion failed</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium" htmlFor="source-crs">
+                  Source coordinate system
+                </label>
+                <Select value={sourceCrs} onValueChange={setSourceCrs}>
+                  <SelectTrigger id="source-crs" className="w-full sm:w-100">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUPPORTED_SOURCE_CRS.map((crs) => (
+                      <SelectItem key={crs.code} value={crs.code}>
+                        {crs.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground">
+                  Used when the file doesn&apos;t specify its own coordinate system — always for
+                  DXF; for a Shapefile only if it has no .prj file; for Excel only if its geom
+                  column (or coordinate columns) don&apos;t declare one. The output GeoJSON is
+                  always in WGS 84 (EPSG:4326).
+                </p>
+              </div>
 
-          {result && result.warnings.length > 0 && (
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  disabled={!file || status === "converting"}
+                  onClick={handleConvert}
+                >
+                  {status === "converting" && <Loader2 className="size-4 animate-spin" />}
+                  Convert to GeoJSON
+                </Button>
+                {result && (
+                  <Button type="button" variant="secondary" onClick={downloadGeoJson}>
+                    Download GeoJSON
+                  </Button>
+                )}
+              </div>
+
+              {status === "error" && error && (
+                <Alert variant="destructive">
+                  <AlertTitle>Conversion failed</AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </>
+        )}
+
+        {result && result.warnings.length > 0 && (
+          <CardContent className="pt-0">
             <Alert>
               <AlertTitle>Heads up</AlertTitle>
               <AlertDescription>
@@ -345,8 +414,8 @@ function Home() {
                 ))}
               </AlertDescription>
             </Alert>
-          )}
-        </CardContent>
+          </CardContent>
+        )}
       </Card>
 
       {result && (
@@ -382,6 +451,20 @@ function Home() {
                 </div>
               </TabsContent>
               <TabsContent value="list" className="flex flex-col gap-2">
+                <FeatureFilterBar
+                  searchQuery={searchQuery}
+                  onSearchQueryChange={setSearchQuery}
+                  existingKeys={existingPropertyKeys}
+                  filters={propertyFilters}
+                  onAddFilter={addPropertyFilter}
+                  onRemoveFilter={removePropertyFilter}
+                />
+                {(searchQuery.trim() || propertyFilters.length > 0) && (
+                  <p className="text-sm text-muted-foreground">
+                    {filteredFeatureCollection.features.length} of{" "}
+                    {visibleFeatureCollection.features.length} features match
+                  </p>
+                )}
                 {selectedFeatures.size > 0 && (
                   <div className="flex items-center justify-between rounded-lg border bg-muted/50 px-3 py-2">
                     <span className="text-sm">{selectedFeatures.size} selected</span>
@@ -401,7 +484,7 @@ function Home() {
                   </div>
                 )}
                 <FeatureList
-                  featureCollection={visibleFeatureCollection}
+                  featureCollection={filteredFeatureCollection}
                   selectedFeatures={selectedFeatures}
                   onToggleFeature={toggleFeatureSelection}
                   onToggleAll={toggleAllSelection}

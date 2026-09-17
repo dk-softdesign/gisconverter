@@ -73,7 +73,7 @@ export function FeatureList({
   });
 
   return (
-    <div ref={parentRef} className="h-125 overflow-auto rounded-lg border">
+    <div ref={parentRef} className="thin-scrollbar h-125 overflow-auto rounded-lg border">
       <div style={{ width: totalWidth, minWidth: "100%" }}>
         <div className="sticky top-0 z-10 flex border-b bg-card">
           {columns.map((column) => (
