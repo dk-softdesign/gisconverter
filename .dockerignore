@@ -1,0 +1,28 @@
+node_modules
+dist
+dist-ssr
+.output
+.nitro
+.tanstack
+.vinxi
+.wrangler
+__unconfig*
+todos.json
+
+# Real customer sample data — never belongs in a build context or image
+source_files
+
+# VCS / editor / OS
+.git
+.gitignore
+.vscode
+.DS_Store
+
+# Env files (never bake secrets into an image)
+.env
+.env.*
+!.env.example
+
+# Docs and non-runtime project metadata
+*.md
+LICENSE

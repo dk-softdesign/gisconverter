@@ -64,12 +64,31 @@ This project uses Nitro as a generic server adapter, so it can run on any Node-c
 
 ```bash
 npm run build
-node dist/server/index.mjs
+node .output/server/index.mjs
 ```
 
-The build output is a self-contained Node server. To deploy, push the `dist/` directory to your host (Render, Fly.io, your own VPS, etc.) and run the server command above.
+The build output (`.output/`) is a self-contained Node server with its own vendored
+`node_modules` for the few dependencies that couldn't be inlined — nothing else to install. To
+deploy without Docker, push the `.output/` directory to your host (Render, Fly.io, your own VPS,
+etc.) and run the server command above.
 
 For host-specific presets (Vercel, Netlify, Cloudflare, AWS Lambda, etc.) and tuning, see https://v3.nitro.build/deploy.
+
+## Deploy with Docker
+
+```bash
+make image   # docker build
+make run     # run it at http://localhost:3000 (override with PORT=...)
+make logs    # follow logs
+make stop    # stop it
+```
+
+`make help` lists every target, including `push` (tags and pushes to `REGISTRY`, which defaults
+to `dockerrepo.softdesign.dk:5000` — override per-call with e.g. `REGISTRY=ghcr.io/your-org make
+push`) and the plain non-Docker tasks (`dev`, `lint`, `check`, ...). The image is a multi-stage
+build (see `Dockerfile`) — dependencies and the build only exist in earlier stages, so the final
+image is just the Nitro output on a slim Node base, running as a
+non-root user.
 
 ## Routing
 

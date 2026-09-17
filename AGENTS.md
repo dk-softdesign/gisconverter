@@ -41,6 +41,15 @@ Run with `npm run <script>`:
 Always run `npm run check` before considering a change complete. Fix everything it reports;
 don't leave lint/format/type errors for the user to clean up.
 
+### Docker / deployment
+
+A `Dockerfile` (multi-stage: deps → build → slim runtime, non-root user) and `Makefile` wrap
+the same build. Run `make help` for the full list; the main ones are `make image` (build),
+`make run` (build + run on port 3000, override with `PORT=`), `make logs`, `make stop`, and
+`make push` (defaults to the `dockerrepo.softdesign.dk:5000` registry, override with
+`REGISTRY=...`). The runtime stage doesn't need `node_modules` — Nitro's
+`.output/` is already self-contained.
+
 ## Conventions
 
 - File-based routing: routes live in `src/routes`. `src/routes/__root.tsx` is the root
