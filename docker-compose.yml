@@ -1,0 +1,23 @@
+# Deploy to a Docker Swarm with:
+#   docker stack deploy -c docker-compose.yml gisconverter
+#
+# Build/push the image first (see Makefile: `make push`), or override the
+# image via `IMAGE=... docker stack deploy -c docker-compose.yml gisconverter`.
+
+services:
+  app:
+    image: ${IMAGE:-dockerrepo.softdesign.dk:5000/gisconverter:latest}
+    ports:
+      - "6228:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        order: start-first

@@ -1,0 +1,42 @@
+{
+  "name": "GIS Converter",
+  // Node version tracks .nvmrc / Dockerfile.
+  "image": "node:24-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/docker-in-docker:3": {},
+    "ghcr.io/jungaretti/features/make:1": {}
+  },
+  "postCreateCommand": "npm ci",
+  "forwardPorts": [
+    3000
+  ],
+  "portsAttributes": {
+    "3000": {
+      "label": "Dev server",
+      "onAutoForward": "notify"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.makefile-tools",
+        "yoavbls.pretty-ts-errors",
+        "aaron-bond.better-comments",
+        "eamodio.gitlens",
+        "Anthropic.claude-code",
+        "oxc.oxc-vscode",
+        "firsttris.vscode-jest-runner"
+      ],
+      "settings": {
+        "editor.defaultFormatter": "oxc.oxc-vscode",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.fixAll.oxc": "explicit"
+        }
+      }
+    }
+  },
+  "remoteUser": "node"
+}
