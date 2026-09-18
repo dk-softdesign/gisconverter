@@ -25,6 +25,17 @@ export function layerNameOf(layer: unknown): string {
   return typeof layer === "string" && layer.length > 0 ? layer : UNNAMED_LAYER;
 }
 
+// When converting a batch of files together, each feature is stamped with a
+// `source` property (the uploaded file it came from) so the legend can group
+// by file instead of by each format's own layer concept. Single-file
+// conversions never set `source`, so this falls back to `layerNameOf`
+// exactly as before.
+export function groupNameOf(feature: GeoJSON.Feature): string {
+  const source = feature.properties?.source;
+  if (typeof source === "string" && source.length > 0) return source;
+  return layerNameOf(feature.properties?.layer);
+}
+
 export function getLayerColor(layer: string): string {
   let hash = 0;
   for (let i = 0; i < layer.length; i++) {

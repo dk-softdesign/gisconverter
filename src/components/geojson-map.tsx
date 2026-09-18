@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import L, { type Layer, type StyleFunction } from "leaflet";
 import { GeoJSON as GeoJsonLayer, MapContainer, TileLayer, useMap } from "react-leaflet";
 
-import { getLayerColor, layerNameOf } from "#/lib/layer-colors";
+import { getLayerColor, groupNameOf, UNNAMED_LAYER } from "#/lib/layer-colors";
 
 import "leaflet/dist/leaflet.css";
 
@@ -30,12 +30,12 @@ function FitBounds({ featureCollection }: { featureCollection: GeoJSON.FeatureCo
 }
 
 const styleByLayer: StyleFunction = (feature) => {
-  const color = getLayerColor(layerNameOf(feature?.properties?.layer));
+  const color = getLayerColor(feature ? groupNameOf(feature) : UNNAMED_LAYER);
   return { color, weight: 2, fillColor: color, fillOpacity: 0.15 };
 };
 
 function pointToColoredMarker(feature: GeoJSON.Feature, latlng: L.LatLng) {
-  const color = getLayerColor(layerNameOf(feature.properties?.layer));
+  const color = getLayerColor(groupNameOf(feature));
   return L.circleMarker(latlng, {
     radius: 5,
     color,
@@ -54,7 +54,7 @@ function bindInspectPopup(feature: GeoJSON.Feature, layer: Layer) {
 
   const title = document.createElement("div");
   title.className = "font-medium";
-  title.textContent = layerNameOf(feature.properties?.layer);
+  title.textContent = groupNameOf(feature);
   container.appendChild(title);
 
   const subtitle = document.createElement("div");
@@ -64,7 +64,7 @@ function bindInspectPopup(feature: GeoJSON.Feature, layer: Layer) {
 
   // Other properties (e.g. DXF block attributes like DIAMETER, MATERIAL)
   const otherEntries = Object.entries(feature.properties ?? {}).filter(
-    ([key, value]) => key !== "layer" && value != null && value !== "",
+    ([key, value]) => key !== "layer" && key !== "source" && value != null && value !== "",
   );
   if (otherEntries.length > 0) {
     const table = document.createElement("div");

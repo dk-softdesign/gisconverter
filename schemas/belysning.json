@@ -1,0 +1,847 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "lyspunktsnummer": {
+      "type": "string",
+      "index": 0,
+      "title": "Lyspunktsnummer",
+      "synch_alias": "LYSPKTNR",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "status": {
+      "enum": [
+        "I drift",
+        "Under etablering",
+        "Permanent ude af drift",
+        "Anlæg uden D&V",
+        "U.a.d. - med kunde",
+        "I drift med Vicevært"
+      ],
+      "index": 1,
+      "title": "Status",
+      "synch_alias": "STATUSS",
+      "ui_type": "dropdown",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "vejnavn": {
+      "type": "string",
+      "index": 2,
+      "title": "Vejnavn",
+      "synch_alias": "VEJNAVN",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "husnr": {
+      "type": "string",
+      "index": 3,
+      "title": "Husnr.",
+      "synch_alias": "HUSNR",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "postnr": {
+      "type": "integer",
+      "index": 4,
+      "title": "Postnummer",
+      "synch_alias": "POSTNR",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "bynavn": {
+      "type": "string",
+      "index": 5,
+      "title": "Bynavn",
+      "synch_alias": "BYNAVN",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "vejtype": {
+      "enum": [
+        "Privat fællesvej",
+        "Privat vej",
+        "Kommuneveje",
+        "Statsveje",
+        "Ukendt"
+      ],
+      "index": 6,
+      "title": "Vejtype",
+      "synch_alias": "VEJTYPE",
+      "ui_type": "dropdown",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "sikkerhedszone": {
+      "enum": [
+        "Nej",
+        "Ja"
+      ],
+      "index": 7,
+      "title": "Sikkerhedszone",
+      "synch_alias": "SIKKERZONE",
+      "ui_type": "dropdown",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "betaler1": {
+      "type": "string",
+      "index": 8,
+      "title": "Betaler 1",
+      "synch_alias": "BETALER1",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "betaler2": {
+      "type": "string",
+      "index": 9,
+      "title": "Betaler 2",
+      "synch_alias": "BETALER2",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "armaturDato": {
+      "type": "string",
+      "format": "date",
+      "index": 10,
+      "title": "Opsat armatur",
+      "synch_alias": "OPSAT_ARMA",
+      "ui_type": "datepicker",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "armaturtype": {
+      "type": "string",
+      "index": 11,
+      "title": "Armaturtype",
+      "synch_alias": "ARMATURTYP",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "armaturfabrikant": {
+      "type": "string",
+      "index": 12,
+      "title": "Fabrikant",
+      "synch_alias": "FABRIKANT",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "lyskildeDato": {
+      "type": "string",
+      "format": "date",
+      "index": 13,
+      "title": "Opsat lyskilde",
+      "synch_alias": "OPSAT_LYSK",
+      "ui_type": "datepicker",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "lyskilde": {
+      "type": "string",
+      "index": 14,
+      "title": "Lyskilde",
+      "synch_alias": "LYSKILDE",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "lyskildegruppe": {
+      "enum": [
+        "Glødepære",
+        "Halogen",
+        "Højtryksnatrium",
+        "Kompaktlysrør",
+        "Kviksølv",
+        "LED",
+        "Lysrør, 1-pulver",
+        "Lysrør, øvrige typer",
+        "Metalhalogen",
+        "Retrofit",
+        "Kompaktlysrør med stiftsokkel",
+        "Kompaktlysrør med skruesokkel",
+        "Fiktiv lyskilde uden abonnementsafregning",
+        "Ukurante/retrofit lyskilder"
+      ],
+      "index": 15,
+      "title": "Lyskildegruppe",
+      "synch_alias": "LYSKILDGRP",
+      "ui_type": "dropdown",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "lyskildeAntal": {
+      "type": "integer",
+      "index": 16,
+      "title": "Antal lyskilder",
+      "synch_alias": "ANTAL_LYSK",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "systemeffekt": {
+      "type": "integer",
+      "index": 17,
+      "title": "Systemeffekt (W)",
+      "synch_alias": "SYSTEM_EFF",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "lumen": {
+      "type": "integer",
+      "index": 18,
+      "title": "Lumen",
+      "synch_alias": "LUMEN",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "kelvin": {
+      "type": "integer",
+      "index": 19,
+      "title": "Kelvin",
+      "synch_alias": "KELVIN",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "raVaerdi": {
+      "type": "integer",
+      "index": 20,
+      "title": "Ra-værdi",
+      "synch_alias": "RA_VAERDI",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "spejlindstilling_optik": {
+      "type": "string",
+      "index": 21,
+      "title": "Spejlindstilling/optik",
+      "synch_alias": "SPEJ_OPTIK",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "taending": {
+      "type": "string",
+      "index": 22,
+      "title": "Tænding",
+      "synch_alias": "TAENDING",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "braendetid": {
+      "type": "number",
+      "index": 23,
+      "title": "Brændtid",
+      "synch_alias": "BRAENDTID",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "daempning": {
+      "type": "string",
+      "index": 24,
+      "title": "Dæmpning",
+      "synch_alias": "DAEMPNING",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "daempeprofil": {
+      "type": "string",
+      "index": 25,
+      "title": "Dæmpeprofil",
+      "synch_alias": "DAEMPE_PRF",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "isolationsklasse": {
+      "enum": [
+        "0",
+        "I",
+        "II",
+        "Ukendt"
+      ],
+      "index": 26,
+      "title": "Isolationsklasse",
+      "synch_alias": "ISOLAT_KLS",
+      "ui_type": "dropdown",
+      "default": "Ukendt",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "eftersynsgruppe": {
+      "enum": [
+        "Høj",
+        "Mellem",
+        "Lav",
+        "Ingen"
+      ],
+      "index": 27,
+      "title": "Eftersynsgruppe",
+      "synch_alias": "EFTERSYGRP",
+      "ui_type": "dropdown",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "garantiaftale": {
+      "type": "string",
+      "index": 28,
+      "title": "Garantiaftale",
+      "synch_alias": "GARANTIAFT",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "garantiudloeb": {
+      "type": "string",
+      "format": "date",
+      "index": 29,
+      "title": "Garantiudløb",
+      "synch_alias": "GARANTIUDL",
+      "ui_type": "datepicker",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "levetid": {
+      "type": "integer",
+      "index": 30,
+      "title": "Levetid",
+      "synch_alias": "LEVETID",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "mastDato": {
+      "type": "string",
+      "format": "date",
+      "index": 31,
+      "title": "Opsat mast",
+      "synch_alias": "OPSAT_MAST",
+      "ui_type": "datepicker",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "masttype": {
+      "type": "string",
+      "index": 32,
+      "title": "Mastetype",
+      "synch_alias": "MASTETYPE",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "masthoejde": {
+      "type": "number",
+      "index": 33,
+      "title": "Højde",
+      "synch_alias": "HOEJDE",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "mastmontage": {
+      "enum": [
+        "På arm",
+        "Væg",
+        "På mast, sidemonteret",
+        "På mast, topmonteret",
+        "Pullert",
+        "Nedgravning",
+        "Ukendt",
+        "Topmonteret",
+        "Væg/loft",
+        "Tværophæng",
+        "På mast, bundmonteret",
+        "Skilt",
+        "Ingen"
+      ],
+      "index": 34,
+      "title": "Montage",
+      "synch_alias": "MONTAGE",
+      "ui_type": "dropdown",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "mastArm": {
+      "type": "string",
+      "index": 35,
+      "title": "Armtype",
+      "synch_alias": "ARMTYPE",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "mastIsokl": {
+      "enum": [
+        "0",
+        "I",
+        "II",
+        "Ukendt"
+      ],
+      "index": 36,
+      "title": "Isoklasse masteindsats",
+      "synch_alias": "ISO_MASTIN",
+      "ui_type": "dropdown",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "transientbeskyttelse": {
+      "type": "string",
+      "index": 37,
+      "title": "Transientbeskyttelse",
+      "synch_alias": "TRANSIENTB",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "skabsnummer": {
+      "type": "string",
+      "index": 38,
+      "title": "Tændsted",
+      "synch_alias": "TAENDSTED",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "zhagaBook18": {
+      "type": "string",
+      "index": 39,
+      "title": "Zhaga Book18",
+      "synch_alias": "ZHAGA_BK18",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "bemaerkningsfelt": {
+      "type": "string",
+      "index": 40,
+      "title": "Bemærkningsfelt",
+      "synch_alias": "BEMAERKFLT",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "ejer": {
+      "type": "string",
+      "index": 41,
+      "title": "Ejer",
+      "synch_alias": "EJER",
+      "ui_type": "field",
+      "default": "LYNGBY-TAARBÆK KOMMUNE",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "vedligeholder": {
+      "type": "string",
+      "index": 42,
+      "title": "Vedligeholder",
+      "synch_alias": "VEDLIGHOLD",
+      "ui_type": "field",
+      "default": "Bravida",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "seneste_almindelige_eftersyn": {
+      "type": "string",
+      "format": "date",
+      "index": 43,
+      "title": "Seneste almindelige eftersyn",
+      "synch_alias": "${issue_completion_date}",
+      "ui_type": "datepicker",
+      "readOnly": true,
+      "clearOnCreate": false,
+      "excludeFromActions": true
+    },
+    "seneste_hovedeftersyn": {
+      "type": "string",
+      "format": "date",
+      "index": 44,
+      "title": "Seneste hovedeftersyn",
+      "synch_alias": "${issue_completion_date}",
+      "ui_type": "datepicker",
+      "readOnly": true,
+      "clearOnCreate": false,
+      "excludeFromActions": true
+    },
+    "seneste_stikprovekontrol": {
+      "type": "string",
+      "format": "date",
+      "index": 45,
+      "title": "Dato for stikprøvekontrol",
+      "synch_alias": "${issue_completion_date}",
+      "ui_type": "datepicker",
+      "readOnly": false,
+      "clearOnCreate": false,
+      "excludeFromActions": true
+    }
+  },
+  "required": [
+    "lyspunktsnummer",
+    "status",
+    "vejnavn",
+    "husnr",
+    "bynavn",
+    "vejtype",
+    "sikkerhedszone",
+    "betaler1",
+    "armaturDato",
+    "armaturtype",
+    "armaturfabrikant",
+    "lyskildeDato",
+    "lyskilde",
+    "lyskildegruppe",
+    "lyskildeAntal",
+    "systemeffekt",
+    "taending",
+    "braendetid",
+    "isolationsklasse",
+    "eftersynsgruppe",
+    "levetid",
+    "mastDato",
+    "masttype",
+    "masthoejde",
+    "mastIsokl",
+    "transientbeskyttelse",
+    "skabsnummer",
+    "ejer",
+    "vedligeholder"
+  ],
+  "layout": {
+    "lyspunktsnummer": {
+      "type": "property",
+      "index": 0
+    },
+    "status": {
+      "type": "property",
+      "index": 1
+    },
+    "vejnavn": {
+      "type": "property",
+      "index": 2
+    },
+    "husnr": {
+      "type": "property",
+      "index": 3
+    },
+    "postnr": {
+      "type": "property",
+      "index": 4
+    },
+    "bynavn": {
+      "type": "property",
+      "index": 5
+    },
+    "vejtype": {
+      "type": "property",
+      "index": 6
+    },
+    "sikkerhedszone": {
+      "type": "property",
+      "index": 7
+    },
+    "betaler1": {
+      "type": "property",
+      "index": 8
+    },
+    "betaler2": {
+      "type": "property",
+      "index": 9
+    },
+    "armaturDato": {
+      "type": "property",
+      "index": 10
+    },
+    "armaturtype": {
+      "type": "property",
+      "index": 11
+    },
+    "armaturfabrikant": {
+      "type": "property",
+      "index": 12
+    },
+    "lyskildeDato": {
+      "type": "property",
+      "index": 13
+    },
+    "lyskilde": {
+      "type": "property",
+      "index": 14
+    },
+    "lyskildegruppe": {
+      "type": "property",
+      "index": 15
+    },
+    "lyskildeAntal": {
+      "type": "property",
+      "index": 16
+    },
+    "systemeffekt": {
+      "type": "property",
+      "index": 17
+    },
+    "lumen": {
+      "type": "property",
+      "index": 18
+    },
+    "kelvin": {
+      "type": "property",
+      "index": 19
+    },
+    "raVaerdi": {
+      "type": "property",
+      "index": 20
+    },
+    "spejlindstilling_optik": {
+      "type": "property",
+      "index": 21
+    },
+    "taending": {
+      "type": "property",
+      "index": 22
+    },
+    "braendetid": {
+      "type": "property",
+      "index": 23
+    },
+    "daempning": {
+      "type": "property",
+      "index": 24
+    },
+    "daempeprofil": {
+      "type": "property",
+      "index": 25
+    },
+    "isolationsklasse": {
+      "type": "property",
+      "index": 26
+    },
+    "eftersynsgruppe": {
+      "type": "property",
+      "index": 27
+    },
+    "garantiaftale": {
+      "type": "property",
+      "index": 28
+    },
+    "garantiudloeb": {
+      "type": "property",
+      "index": 29
+    },
+    "levetid": {
+      "type": "property",
+      "index": 30
+    },
+    "mastDato": {
+      "type": "property",
+      "index": 31
+    },
+    "masttype": {
+      "type": "property",
+      "index": 32
+    },
+    "masthoejde": {
+      "type": "property",
+      "index": 33
+    },
+    "mastmontage": {
+      "type": "property",
+      "index": 34
+    },
+    "mastArm": {
+      "type": "property",
+      "index": 35
+    },
+    "mastIsokl": {
+      "type": "property",
+      "index": 36
+    },
+    "transientbeskyttelse": {
+      "type": "property",
+      "index": 37
+    },
+    "skabsnummer": {
+      "type": "property",
+      "index": 38
+    },
+    "zhagaBook18": {
+      "type": "property",
+      "index": 39
+    },
+    "bemaerkningsfelt": {
+      "type": "property",
+      "index": 40
+    },
+    "ejer": {
+      "type": "property",
+      "index": 41
+    },
+    "vedligeholder": {
+      "type": "property",
+      "index": 42
+    },
+    "seneste_almindelige_eftersyn": {
+      "type": "property",
+      "index": 43
+    },
+    "seneste_hovedeftersyn": {
+      "type": "property",
+      "index": 44
+    },
+    "seneste_stikprovekontrol": {
+      "type": "property",
+      "index": 45
+    }
+  },
+  "dependentSchemas": {
+    "lumen": {
+      "if": {
+        "properties": {
+          "lyskildegruppe": {
+            "const": "LED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "lumen": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "lumen"
+        ]
+      }
+    },
+    "kelvin": {
+      "if": {
+        "properties": {
+          "lyskildegruppe": {
+            "const": "LED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "kelvin": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "kelvin"
+        ]
+      }
+    },
+    "raVaerdi": {
+      "if": {
+        "properties": {
+          "lyskildegruppe": {
+            "const": "LED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "raVaerdi": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "raVaerdi"
+        ]
+      }
+    },
+    "spejlindstilling_optik": {
+      "if": {
+        "properties": {
+          "lyskildegruppe": {
+            "const": "LED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "spejlindstilling_optik": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "spejlindstilling_optik"
+        ]
+      }
+    },
+    "mastmontage": {
+      "if": {
+        "properties": {
+          "masthoejde": {
+            "const": 0
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "mastmontage": {
+            "enum": [
+              "Nedgravning"
+            ]
+          }
+        }
+      }
+    },
+    "mastArm": {
+      "if": {
+        "properties": {
+          "mastmontage": {
+            "enum": [
+              "På arm",
+              "På mast, sidemonteret"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "mastArm": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "mastArm"
+        ]
+      }
+    }
+  },
+  "dependentRequired": {
+    "daempning": [
+      "daempeprofil"
+    ],
+    "daempeprofil": [
+      "daempning"
+    ]
+  },
+  "relations": {
+    "kshc1zcz8i1l13ue0q687oqrc": {
+      "sourceProperty": "skabsnummer",
+      "targetProperty": "skabsnummer"
+    }
+  }
+}

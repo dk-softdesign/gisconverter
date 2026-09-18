@@ -1,0 +1,489 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "status": {
+      "enum": [
+        "Under etablering",
+        "I drift",
+        "Permanent ude af drift"
+      ],
+      "index": 0,
+      "title": "Status",
+      "synch_alias": "STATUSS",
+      "ui_type": "dropdown",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "vejnavn": {
+      "type": "string",
+      "index": 1,
+      "title": "Vejnavn",
+      "synch_alias": "VEJNAVN",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "husnr": {
+      "type": "string",
+      "index": 2,
+      "title": "Husnr.",
+      "synch_alias": "HUSNR",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "postnr": {
+      "type": "string",
+      "index": 3,
+      "title": "Postnummer",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "bynavn": {
+      "type": "string",
+      "index": 4,
+      "title": "Bynavn",
+      "synch_alias": "BYNAVN",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "skabsnummer": {
+      "type": "string",
+      "index": 5,
+      "title": "Skabsnummer",
+      "synch_alias": "SKABSNR",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "installationnr": {
+      "type": "string",
+      "index": 6,
+      "title": "Installationsnummer",
+      "synch_alias": "INSTALNR",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "sikkerhedszone": {
+      "enum": [
+        "Ja",
+        "Nej"
+      ],
+      "index": 7,
+      "title": "Sikkerhedszone",
+      "synch_alias": "SIKKERZONE",
+      "ui_type": "dropdown",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "tilstand": {
+      "type": "number",
+      "index": 8,
+      "title": "Tilstand skab",
+      "synch_alias": "TILSTANDSK",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "skabsDato": {
+      "type": "string",
+      "format": "date",
+      "index": 9,
+      "title": "Skab etableringsdato",
+      "synch_alias": "OPSATSKAB",
+      "ui_type": "datepicker",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "maalerDato": {
+      "type": "string",
+      "format": "date",
+      "index": 10,
+      "title": "Måler etableringsdato",
+      "synch_alias": "MALERETABD",
+      "ui_type": "datepicker",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "forsyningsskabsnr": {
+      "type": "string",
+      "index": 11,
+      "title": "Forsyningsskabsnr.",
+      "synch_alias": "FORSKBNR",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "forsyningsskabsadresse": {
+      "type": "string",
+      "index": 12,
+      "title": "Forsyningsskabsadresse",
+      "synch_alias": "FORSKBADR",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "skabstype": {
+      "type": "string",
+      "index": 13,
+      "title": "Skabstype",
+      "synch_alias": "SKABSTYPE",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "aftagernr": {
+      "type": "number",
+      "index": 14,
+      "title": "Aftagenummer",
+      "synch_alias": "AFTAGENR",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "producent": {
+      "type": "string",
+      "index": 15,
+      "title": "Producent",
+      "synch_alias": "PRODUCENT",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "styring": {
+      "type": "string",
+      "index": 16,
+      "title": "Styring",
+      "synch_alias": "STYRING",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "hovedskabsnr": {
+      "type": "number",
+      "index": 17,
+      "title": "Tændes fra",
+      "synch_alias": "TAENDESFRA",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "antalTilsluttet": {
+      "type": "number",
+      "index": 18,
+      "title": "Skabsantal tilsluttet anlæg",
+      "synch_alias": "SKSANTTIL",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "garantiaftale": {
+      "type": "string",
+      "index": 19,
+      "title": "Garantiaftale",
+      "synch_alias": "GARANTIAFT",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "garantiudloeb": {
+      "type": "string",
+      "format": "date",
+      "index": 20,
+      "title": "Garantiudløb",
+      "synch_alias": "GARANTIUDL",
+      "ui_type": "datepicker",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "isolationsklasse": {
+      "enum": [
+        "0",
+        "I",
+        "II"
+      ],
+      "index": 21,
+      "title": "Isolationsklasse",
+      "synch_alias": "ISOLAT_KLS",
+      "ui_type": "dropdown",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "transientbeskyttelse": {
+      "type": "string",
+      "index": 22,
+      "title": "Transientbeskyttelse",
+      "synch_alias": "TRANSIENTB",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "smartLightDato": {
+      "type": "string",
+      "format": "date",
+      "index": 23,
+      "title": "Smart light opsat dato",
+      "synch_alias": "OPSATDATO",
+      "ui_type": "datepicker",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "smartLightRouterNr": {
+      "type": "string",
+      "index": 24,
+      "title": "Routernummer",
+      "synch_alias": "ROUTERNR",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "smartLightRouterart": {
+      "type": "string",
+      "index": 25,
+      "title": "Routerart",
+      "synch_alias": "ROUTERART",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "smartLightBeskrivelse": {
+      "type": "string",
+      "index": 26,
+      "title": "Korttekst",
+      "synch_alias": "KORTTEKST",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "smartLightNetvaerksadresse": {
+      "type": "number",
+      "index": 27,
+      "title": "Netværksadresse",
+      "synch_alias": "NETVAERKAD",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "bemaerkning": {
+      "type": "string",
+      "index": 28,
+      "title": "Bemærkningsfelt",
+      "synch_alias": "BEMAERKFLT",
+      "ui_type": "field",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "ejer": {
+      "type": "string",
+      "index": 29,
+      "title": "Ejer",
+      "synch_alias": "EJER",
+      "ui_type": "field",
+      "default": "LYNGBY-TAARBÆK KOMMUNE",
+      "readOnly": true,
+      "clearOnCreate": false
+    },
+    "vedligeholder": {
+      "type": "string",
+      "index": 30,
+      "title": "Vedligeholder",
+      "synch_alias": "VEDLIGHOLD",
+      "ui_type": "field",
+      "default": "Bravida",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "udvidet_hovedeftersyn": {
+      "enum": [
+        "Gruppe 1",
+        "Gruppe 2",
+        "Gruppe 3",
+        "Gruppe 4"
+      ],
+      "index": 31,
+      "title": "Udvidet hovedeftersyn",
+      "ui_type": "dropdown",
+      "readOnly": false,
+      "clearOnCreate": false
+    },
+    "seneste_udvidet_hovedeftersyn": {
+      "type": "string",
+      "format": "date",
+      "index": 32,
+      "title": "Seneste udvidet hovedeftersyn",
+      "synch_alias": "${issue_completion_date}",
+      "ui_type": "datepicker",
+      "readOnly": true,
+      "clearOnCreate": false,
+      "excludeFromActions": true
+    },
+    "naeste_udvidet_hovedeftersyn": {
+      "type": "string",
+      "format": "date",
+      "index": 33,
+      "title": "Næste udvidet hovedeftersyn",
+      "synch_alias": "${issue_completion_date:+2y}",
+      "ui_type": "datepicker",
+      "default": "",
+      "readOnly": false,
+      "clearOnCreate": false,
+      "excludeFromActions": true
+    }
+  },
+  "required": [
+    "status",
+    "vejnavn",
+    "husnr",
+    "postnr",
+    "bynavn",
+    "skabsnummer",
+    "sikkerhedszone",
+    "tilstand",
+    "skabsDato",
+    "maalerDato",
+    "ejer",
+    "vedligeholder"
+  ],
+  "layout": {
+    "status": {
+      "type": "property",
+      "index": 0
+    },
+    "vejnavn": {
+      "type": "property",
+      "index": 1
+    },
+    "husnr": {
+      "type": "property",
+      "index": 2
+    },
+    "postnr": {
+      "type": "property",
+      "index": 3
+    },
+    "bynavn": {
+      "type": "property",
+      "index": 4
+    },
+    "skabsnummer": {
+      "type": "property",
+      "index": 5
+    },
+    "installationnr": {
+      "type": "property",
+      "index": 6
+    },
+    "sikkerhedszone": {
+      "type": "property",
+      "index": 7
+    },
+    "tilstand": {
+      "type": "property",
+      "index": 8
+    },
+    "skabsDato": {
+      "type": "property",
+      "index": 9
+    },
+    "maalerDato": {
+      "type": "property",
+      "index": 10
+    },
+    "forsyningsskabsnr": {
+      "type": "property",
+      "index": 11
+    },
+    "forsyningsskabsadresse": {
+      "type": "property",
+      "index": 12
+    },
+    "skabstype": {
+      "type": "property",
+      "index": 13
+    },
+    "aftagernr": {
+      "type": "property",
+      "index": 14
+    },
+    "producent": {
+      "type": "property",
+      "index": 15
+    },
+    "styring": {
+      "type": "property",
+      "index": 16
+    },
+    "hovedskabsnr": {
+      "type": "property",
+      "index": 17
+    },
+    "antalTilsluttet": {
+      "type": "property",
+      "index": 18
+    },
+    "garantiaftale": {
+      "type": "property",
+      "index": 19
+    },
+    "garantiudloeb": {
+      "type": "property",
+      "index": 20
+    },
+    "isolationsklasse": {
+      "type": "property",
+      "index": 21
+    },
+    "transientbeskyttelse": {
+      "type": "property",
+      "index": 22
+    },
+    "smartLightDato": {
+      "type": "property",
+      "index": 23
+    },
+    "smartLightRouterNr": {
+      "type": "property",
+      "index": 24
+    },
+    "smartLightRouterart": {
+      "type": "property",
+      "index": 25
+    },
+    "smartLightBeskrivelse": {
+      "type": "property",
+      "index": 26
+    },
+    "smartLightNetvaerksadresse": {
+      "type": "property",
+      "index": 27
+    },
+    "bemaerkning": {
+      "type": "property",
+      "index": 28
+    },
+    "ejer": {
+      "type": "property",
+      "index": 29
+    },
+    "vedligeholder": {
+      "type": "property",
+      "index": 30
+    },
+    "udvidet_hovedeftersyn": {
+      "type": "property",
+      "index": 31
+    },
+    "seneste_udvidet_hovedeftersyn": {
+      "type": "property",
+      "index": 32
+    },
+    "naeste_udvidet_hovedeftersyn": {
+      "type": "property",
+      "index": 33
+    }
+  }
+}

@@ -9,6 +9,9 @@ import { nitro } from "nitro/vite";
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
+  // Bind to all interfaces (not just ::1) so the dev server is reachable via
+  // 127.0.0.1 too — needed for devcontainer port forwarding, which targets IPv4.
+  server: { host: true },
   plugins: [
     devtools(),
     nitro({ rollupConfig: { external: [/^@sentry\//] } }),

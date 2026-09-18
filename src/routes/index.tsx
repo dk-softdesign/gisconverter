@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
-import { CheckCircle2, Loader2, UploadCloud } from "lucide-react";
+import { CheckCircle2, Loader2, UploadCloud, XCircle } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert";
 import { Button } from "#/components/ui/button";
@@ -18,11 +18,20 @@ import { FeatureList } from "#/components/feature-list";
 import { GeoJsonMap } from "#/components/geojson-map";
 import { LayerLegend } from "#/components/layer-legend";
 import { PropertyEditDialog } from "#/components/property-edit-dialog";
+import { SchemaValidationPanel } from "#/components/schema-validation-panel";
 import { ThemeToggle } from "#/components/theme-toggle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
+import { collectFilesFromDataTransfer } from "#/lib/collect-files";
 import { DEFAULT_SOURCE_CRS, SUPPORTED_SOURCE_CRS, isSupportedSourceCrs } from "#/lib/crs";
-import { layerNameOf } from "#/lib/layer-colors";
+import { groupNameOf } from "#/lib/layer-colors";
 import { cn } from "#/lib/utils";
+
+const SUPPORTED_EXTENSIONS = [".dxf", ".zip", ".xlsx"];
+
+function isSupportedFile(file: File): boolean {
+  const name = file.name.toLowerCase();
+  return SUPPORTED_EXTENSIONS.some((ext) => name.endsWith(ext));
+}
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -38,8 +47,15 @@ function stringifyPropertyValue(value: unknown): string {
   return String(value);
 }
 
+interface FileStatus {
+  file: File;
+  status: "pending" | "done" | "error";
+  error?: string;
+}
+
 function Home() {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [fileStatuses, setFileStatuses] = useState<FileStatus[]>([]);
   const [sourceCrs, setSourceCrsState] = useState(DEFAULT_SOURCE_CRS);
   const [status, setStatus] = useState<"idle" | "converting" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +63,7 @@ function Home() {
   const [version, setVersion] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
+  const [layerSchemaIds, setLayerSchemaIds] = useState<Record<string, string | null>>({});
   const [selectedFeatures, setSelectedFeatures] = useState<Set<GeoJSON.Feature>>(new Set());
   const [editingFeature, setEditingFeature] = useState<GeoJSON.Feature | null>(null);
   const [editSessionId, setEditSessionId] = useState(0);
@@ -56,6 +73,7 @@ function Home() {
   const [propertyFilters, setPropertyFilters] = useState<PropertyFilter[]>([]);
   const [isUploadCollapsed, setIsUploadCollapsed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const nextFilterId = useRef(0);
 
   useEffect(() => {
     // Reads localStorage, so this can only happen client-side post-mount; the
@@ -83,9 +101,7 @@ function Home() {
 
   const layers = useMemo(() => {
     if (!result) return [];
-    return [
-      ...new Set(result.featureCollection.features.map((f) => layerNameOf(f.properties?.layer))),
-    ].sort();
+    return [...new Set(result.featureCollection.features.map((f) => groupNameOf(f)))].sort();
   }, [result]);
 
   const visibleFeatureCollection = useMemo((): GeoJSON.FeatureCollection => {
@@ -93,9 +109,7 @@ function Home() {
     if (hiddenLayers.size === 0) return result.featureCollection;
     return {
       type: "FeatureCollection",
-      features: result.featureCollection.features.filter(
-        (f) => !hiddenLayers.has(layerNameOf(f.properties?.layer)),
-      ),
+      features: result.featureCollection.features.filter((f) => !hiddenLayers.has(groupNameOf(f))),
     };
   }, [result, hiddenLayers]);
 
@@ -143,7 +157,8 @@ function Home() {
   }, [visibleFeatureCollection, searchQuery, propertyFilters]);
 
   function addPropertyFilter(key: string, value: string) {
-    setPropertyFilters((prev) => [...prev, { id: crypto.randomUUID(), key, value }]);
+    const id = String(nextFilterId.current++);
+    setPropertyFilters((prev) => [...prev, { id, key, value }]);
   }
 
   function removePropertyFilter(id: string) {
@@ -212,49 +227,115 @@ function Home() {
     setBulkEditSessionId((id) => id + 1);
   }
 
-  function selectFile(next: File | null) {
-    if (next) {
-      const name = next.name.toLowerCase();
-      if (!name.endsWith(".dxf") && !name.endsWith(".zip") && !name.endsWith(".xlsx")) {
-        setError("Only .dxf, .zip (Shapefile), and .xlsx files are supported right now.");
-        setStatus("error");
-        return;
-      }
-    }
-    setFile(next);
+  function setLayerSchema(layer: string, schemaId: string | null) {
+    setLayerSchemaIds((prev) => ({ ...prev, [layer]: schemaId }));
+  }
+
+  function applyPropertyRename(layer: string, renameMap: Record<string, string>) {
+    setResult((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        featureCollection: {
+          ...prev.featureCollection,
+          features: prev.featureCollection.features.map((f) => {
+            if (groupNameOf(f) !== layer) return f;
+            const renamed: GeoJSON.GeoJsonProperties = {};
+            for (const [key, value] of Object.entries(f.properties ?? {})) {
+              renamed[renameMap[key] ?? key] = value;
+            }
+            return { ...f, properties: renamed };
+          }),
+        },
+      };
+    });
+  }
+
+  function selectFiles(next: File[]) {
+    const supported = next.filter(isSupportedFile);
+    const rejectedCount = next.length - supported.length;
+
+    setFiles(supported);
+    setFileStatuses([]);
     setResult(null);
-    setError(null);
-    setStatus("idle");
+    setStatus(rejectedCount > 0 && supported.length === 0 ? "error" : "idle");
+    setError(
+      rejectedCount > 0
+        ? `Skipped ${rejectedCount} unsupported file${rejectedCount === 1 ? "" : "s"} — only .dxf, .zip (Shapefile), and .xlsx are supported.`
+        : null,
+    );
   }
 
   async function handleConvert() {
-    if (!file) return;
+    if (files.length === 0) return;
     setStatus("converting");
     setError(null);
+    setFileStatuses(files.map((f) => ({ file: f, status: "pending" })));
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("sourceCrs", sourceCrs);
+    const isBatch = files.length > 1;
 
-    try {
-      const response = await fetch("/api/convert", { method: "POST", body: formData });
-      const data: unknown = await response.json();
-      if (!response.ok) {
-        const message = (data as { error?: string }).error ?? "Failed to convert this file.";
-        throw new Error(message);
+    const outcomes = await Promise.all(
+      files.map(async (file, index) => {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("sourceCrs", sourceCrs);
+
+        try {
+          const response = await fetch("/api/convert", { method: "POST", body: formData });
+          const data: unknown = await response.json();
+          if (!response.ok) {
+            const message = (data as { error?: string }).error ?? "Failed to convert this file.";
+            throw new Error(message);
+          }
+          setFileStatuses((prev) =>
+            prev.map((s, i) => (i === index ? { ...s, status: "done" } : s)),
+          );
+          return { file, data: data as ConvertResponse };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Failed to convert this file.";
+          setFileStatuses((prev) =>
+            prev.map((s, i) => (i === index ? { ...s, status: "error", error: message } : s)),
+          );
+          return { file, error: message };
+        }
+      }),
+    );
+
+    const features: GeoJSON.Feature[] = [];
+    const warnings: string[] = [];
+
+    for (const outcome of outcomes) {
+      if ("error" in outcome) {
+        warnings.push(`${outcome.file.name}: ${outcome.error}`);
+        continue;
       }
-      setResult(data as ConvertResponse);
-      setHiddenLayers(new Set());
-      setSelectedFeatures(new Set());
-      setSearchQuery("");
-      setPropertyFilters([]);
-      setVersion((v) => v + 1);
-      setStatus("idle");
-      setIsUploadCollapsed(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to convert this file.");
-      setStatus("error");
+      for (const feature of outcome.data.featureCollection.features) {
+        features.push(
+          isBatch && !feature.properties?.source
+            ? { ...feature, properties: { ...feature.properties, source: outcome.file.name } }
+            : feature,
+        );
+      }
+      for (const warning of outcome.data.warnings) {
+        warnings.push(isBatch ? `${outcome.file.name}: ${warning}` : warning);
+      }
     }
+
+    if (features.length === 0) {
+      setError(warnings.join("\n") || "Failed to convert this file.");
+      setStatus("error");
+      return;
+    }
+
+    setResult({ featureCollection: { type: "FeatureCollection", features }, warnings });
+    setHiddenLayers(new Set());
+    setLayerSchemaIds({});
+    setSelectedFeatures(new Set());
+    setSearchQuery("");
+    setPropertyFilters([]);
+    setVersion((v) => v + 1);
+    setStatus("idle");
+    setIsUploadCollapsed(true);
   }
 
   function downloadGeoJson() {
@@ -265,7 +346,9 @@ function Home() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${file?.name.replace(/\.(dxf|zip|xlsx)$/i, "") ?? "converted"}.geojson`;
+    const baseName = files[0]?.name.replace(/\.(dxf|zip|xlsx)$/i, "") ?? "converted";
+    link.download =
+      files.length > 1 ? `${baseName}-and-${files.length - 1}-more.geojson` : `${baseName}.geojson`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -277,7 +360,8 @@ function Home() {
           <div>
             <h1 className="text-4xl font-bold">GIS Converter</h1>
             <p className="mt-2 text-lg text-muted-foreground">
-              Convert a DXF, Shapefile (zipped), or Excel file to GeoJSON and preview it on a map.
+              Convert DXF, Shapefile (zipped), or Excel files — one at a time or in bulk — to
+              GeoJSON and preview them together on a map.
             </p>
           </div>
           <ClientOnly>
@@ -291,7 +375,9 @@ function Home() {
           <CardContent className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm">
               <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />
-              <span className="font-medium">{file?.name}</span>
+              <span className="font-medium">
+                {files.length === 1 ? files[0].name : `${files.length} files`}
+              </span>
               <span className="text-muted-foreground">converted to GeoJSON</span>
             </div>
             <div className="flex gap-2">
@@ -304,16 +390,17 @@ function Home() {
                 size="sm"
                 onClick={() => setIsUploadCollapsed(false)}
               >
-                Change file
+                {files.length > 1 ? "Change files" : "Change file"}
               </Button>
             </div>
           </CardContent>
         ) : (
           <>
             <CardHeader>
-              <CardTitle>Convert a file</CardTitle>
+              <CardTitle>Convert files</CardTitle>
               <CardDescription>
-                Currently supported: DXF, Shapefile (.zip), Excel (.xlsx) → GeoJSON.
+                Currently supported: DXF, Shapefile (.zip), Excel (.xlsx) → GeoJSON. Select or drop
+                multiple files, or a whole folder, to convert them together.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
@@ -322,8 +409,9 @@ function Home() {
                   ref={inputRef}
                   type="file"
                   accept=".dxf,.zip,.xlsx"
+                  multiple
                   className="hidden"
-                  onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => selectFiles([...(e.target.files ?? [])])}
                 />
                 <button
                   type="button"
@@ -336,7 +424,9 @@ function Home() {
                   onDrop={(e) => {
                     e.preventDefault();
                     setIsDragging(false);
-                    selectFile(e.dataTransfer.files?.[0] ?? null);
+                    void collectFilesFromDataTransfer(e.dataTransfer)
+                      .then(selectFiles)
+                      .catch(() => setError("Could not read the dropped files."));
                   }}
                   className={cn(
                     "flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-8 text-center transition-colors",
@@ -346,11 +436,15 @@ function Home() {
                   <UploadCloud className="size-8 text-muted-foreground" />
                   <p className="text-sm">
                     <span className="font-medium">
-                      Drag and drop a .dxf, .zip (Shapefile), or .xlsx file here
+                      Drag and drop .dxf, .zip (Shapefile), or .xlsx files (or a folder) here
                     </span>
                     , or click to browse.
                   </p>
-                  {file && <span className="text-sm text-muted-foreground">{file.name}</span>}
+                  {files.length > 0 && (
+                    <span className="text-sm text-muted-foreground">
+                      {files.length === 1 ? files[0].name : `${files.length} files selected`}
+                    </span>
+                  )}
                 </button>
               </div>
 
@@ -381,11 +475,13 @@ function Home() {
               <div className="flex gap-3">
                 <Button
                   type="button"
-                  disabled={!file || status === "converting"}
+                  disabled={files.length === 0 || status === "converting"}
                   onClick={handleConvert}
                 >
                   {status === "converting" && <Loader2 className="size-4 animate-spin" />}
-                  Convert to GeoJSON
+                  {files.length > 1
+                    ? `Convert ${files.length} files to GeoJSON`
+                    : "Convert to GeoJSON"}
                 </Button>
                 {result && (
                   <Button type="button" variant="secondary" onClick={downloadGeoJson}>
@@ -394,10 +490,35 @@ function Home() {
                 )}
               </div>
 
+              {status === "converting" && fileStatuses.length > 1 && (
+                <ul className="flex flex-col gap-1 text-sm">
+                  {fileStatuses.map((fs) => (
+                    <li key={fs.file.name} className="flex items-center gap-2">
+                      {fs.status === "pending" && (
+                        <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+                      )}
+                      {fs.status === "done" && (
+                        <CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" />
+                      )}
+                      {fs.status === "error" && (
+                        <XCircle className="size-3.5 shrink-0 text-destructive" />
+                      )}
+                      <span className={fs.status === "error" ? "text-destructive" : undefined}>
+                        {fs.file.name}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
               {status === "error" && error && (
                 <Alert variant="destructive">
                   <AlertTitle>Conversion failed</AlertTitle>
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertDescription>
+                    {error.split("\n").map((line) => (
+                      <p key={line}>{line}</p>
+                    ))}
+                  </AlertDescription>
                 </Alert>
               )}
             </CardContent>
@@ -436,6 +557,7 @@ function Home() {
               <TabsList>
                 <TabsTrigger value="map">Map</TabsTrigger>
                 <TabsTrigger value="list">List</TabsTrigger>
+                <TabsTrigger value="validation">Validation</TabsTrigger>
               </TabsList>
               <TabsContent value="map">
                 <div className="h-125 overflow-hidden rounded-lg border">
@@ -489,6 +611,16 @@ function Home() {
                   onToggleFeature={toggleFeatureSelection}
                   onToggleAll={toggleAllSelection}
                   onEditFeature={openEditDialog}
+                />
+              </TabsContent>
+              <TabsContent value="validation">
+                <SchemaValidationPanel
+                  featureCollection={result.featureCollection}
+                  layers={layers}
+                  layerSchemaIds={layerSchemaIds}
+                  onLayerSchemaChange={setLayerSchema}
+                  onEditFeature={openEditDialog}
+                  onApplyRename={applyPropertyRename}
                 />
               </TabsContent>
             </Tabs>
