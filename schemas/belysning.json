@@ -64,13 +64,7 @@
       "clearOnCreate": false
     },
     "vejtype": {
-      "enum": [
-        "Privat fællesvej",
-        "Privat vej",
-        "Kommuneveje",
-        "Statsveje",
-        "Ukendt"
-      ],
+      "enum": ["Privat fællesvej", "Privat vej", "Kommuneveje", "Statsveje", "Ukendt"],
       "index": 6,
       "title": "Vejtype",
       "synch_alias": "VEJTYPE",
@@ -79,10 +73,7 @@
       "clearOnCreate": false
     },
     "sikkerhedszone": {
-      "enum": [
-        "Nej",
-        "Ja"
-      ],
+      "enum": ["Nej", "Ja"],
       "index": 7,
       "title": "Sikkerhedszone",
       "synch_alias": "SIKKERZONE",
@@ -270,12 +261,7 @@
       "clearOnCreate": false
     },
     "isolationsklasse": {
-      "enum": [
-        "0",
-        "I",
-        "II",
-        "Ukendt"
-      ],
+      "enum": ["0", "I", "II", "Ukendt"],
       "index": 26,
       "title": "Isolationsklasse",
       "synch_alias": "ISOLAT_KLS",
@@ -285,12 +271,7 @@
       "clearOnCreate": false
     },
     "eftersynsgruppe": {
-      "enum": [
-        "Høj",
-        "Mellem",
-        "Lav",
-        "Ingen"
-      ],
+      "enum": ["Høj", "Mellem", "Lav", "Ingen"],
       "index": 27,
       "title": "Eftersynsgruppe",
       "synch_alias": "EFTERSYGRP",
@@ -387,12 +368,7 @@
       "clearOnCreate": false
     },
     "mastIsokl": {
-      "enum": [
-        "0",
-        "I",
-        "II",
-        "Ukendt"
-      ],
+      "enum": ["0", "I", "II", "Ukendt"],
       "index": 36,
       "title": "Isoklasse masteindsats",
       "synch_alias": "ISO_MASTIN",
@@ -723,9 +699,7 @@
             "exclusiveMinimum": 0
           }
         },
-        "required": [
-          "lumen"
-        ]
+        "required": ["lumen"]
       }
     },
     "kelvin": {
@@ -743,9 +717,7 @@
             "exclusiveMinimum": 0
           }
         },
-        "required": [
-          "kelvin"
-        ]
+        "required": ["kelvin"]
       }
     },
     "raVaerdi": {
@@ -763,9 +735,7 @@
             "exclusiveMinimum": 0
           }
         },
-        "required": [
-          "raVaerdi"
-        ]
+        "required": ["raVaerdi"]
       }
     },
     "spejlindstilling_optik": {
@@ -783,9 +753,7 @@
             "minLength": 1
           }
         },
-        "required": [
-          "spejlindstilling_optik"
-        ]
+        "required": ["spejlindstilling_optik"]
       }
     },
     "mastmontage": {
@@ -799,9 +767,7 @@
       "then": {
         "properties": {
           "mastmontage": {
-            "enum": [
-              "Nedgravning"
-            ]
+            "enum": ["Nedgravning"]
           }
         }
       }
@@ -810,10 +776,7 @@
       "if": {
         "properties": {
           "mastmontage": {
-            "enum": [
-              "På arm",
-              "På mast, sidemonteret"
-            ]
+            "enum": ["På arm", "På mast, sidemonteret"]
           }
         }
       },
@@ -824,19 +787,13 @@
             "minLength": 1
           }
         },
-        "required": [
-          "mastArm"
-        ]
+        "required": ["mastArm"]
       }
     }
   },
   "dependentRequired": {
-    "daempning": [
-      "daempeprofil"
-    ],
-    "daempeprofil": [
-      "daempning"
-    ]
+    "daempning": ["daempeprofil"],
+    "daempeprofil": ["daempning"]
   },
   "relations": {
     "kshc1zcz8i1l13ue0q687oqrc": {

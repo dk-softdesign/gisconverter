@@ -29,6 +29,25 @@ Brainstormed feature/UI ideas for GIS Converter. Not commitments — just a back
 - Validation/repair pass: flag invalid geometries (self-intersections, unclosed polygons)
   with a "fix" action.
 
+## Advanced property cleanup
+
+Today's bulk edit (`bulk-edit-dialog.tsx`) only sets one key to one literal value across the
+selection — no search/replace, no preview, no undo. In progress: redesigning it into a tabbed
+dialog with three modes:
+
+- **Set value** — today's existing behavior, kept as the simple default.
+- **Find & replace** — regex pattern + replacement (with capture groups), scoped to one
+  property key or all of them, case-insensitive toggle. Covers most real cleanup (trim
+  whitespace, normalize casing, strip leading zeros) without needing code.
+- **Custom JS** — power-user escape hatch: a snippet like
+  `return { ...props, name: props.name.trim().toUpperCase() }` run per-feature via
+  `new Function`. No sandboxing needed since this is client-side only; wrap each per-feature
+  call in try/catch so one bad row doesn't abort the batch.
+
+All three modes share a live before/after preview (sample rows + "N of M changed / N errored")
+before the user commits, since bulk mutation is otherwise blind and un-undoable. Undo for bulk
+ops in general is still a separate, unimplemented idea (see above).
+
 ## Workflow / UX
 
 - Conversion history — no backend persistence today, so at least a local "recent

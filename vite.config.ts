@@ -11,7 +11,10 @@ const config = defineConfig({
   resolve: { tsconfigPaths: true },
   // Bind to all interfaces (not just ::1) so the dev server is reachable via
   // 127.0.0.1 too — needed for devcontainer port forwarding, which targets IPv4.
-  server: { host: true },
+  // usePolling: native filesystem events don't reliably reach the container
+  // across the WSL2/Docker bind mount, so without it edits can go unnoticed
+  // until the dev server is restarted.
+  server: { host: true, watch: { usePolling: true } },
   plugins: [
     devtools(),
     nitro({ rollupConfig: { external: [/^@sentry\//] } }),

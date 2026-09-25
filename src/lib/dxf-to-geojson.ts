@@ -1,5 +1,6 @@
 import { Helper } from "dxf";
 
+import { matchingSourceCrs } from "#/lib/detect-crs";
 import { reprojectFeatureCollection } from "#/lib/reproject";
 
 export interface DxfConversionResult {
@@ -135,7 +136,9 @@ function extractAttributedInsertFeatures(entities: DxfEntity[]): GeoJSON.Feature
   return features;
 }
 
-export function convertDxfToGeoJson(dxfText: string, sourceCrs: string): DxfConversionResult {
+// Parses a DXF into features in the file's own (not yet reprojected)
+// coordinates.
+function readDxfFeatures(dxfText: string): DxfConversionResult {
   const helper = new Helper(dxfText);
   if (!helper.parsed) {
     throw new Error("Could not parse DXF file");
@@ -212,8 +215,15 @@ export function convertDxfToGeoJson(dxfText: string, sourceCrs: string): DxfConv
     })),
   };
 
-  return {
-    featureCollection: reprojectFeatureCollection(decoded, sourceCrs),
-    warnings,
-  };
+  return { featureCollection: decoded, warnings };
+}
+
+export function convertDxfToGeoJson(dxfText: string, sourceCrs: string): DxfConversionResult {
+  const { featureCollection, warnings } = readDxfFeatures(dxfText);
+  return { featureCollection: reprojectFeatureCollection(featureCollection, sourceCrs), warnings };
+}
+
+// Source CRSs the DXF's coordinates fit, most likely first (see detect-crs.ts).
+export function detectDxfSourceCrs(dxfText: string): string[] {
+  return matchingSourceCrs(readDxfFeatures(dxfText).featureCollection.features);
 }

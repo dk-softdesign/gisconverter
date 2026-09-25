@@ -3,11 +3,7 @@
   "type": "object",
   "properties": {
     "status": {
-      "enum": [
-        "Under etablering",
-        "I drift",
-        "Permanent ude af drift"
-      ],
+      "enum": ["Under etablering", "I drift", "Permanent ude af drift"],
       "index": 0,
       "title": "Status",
       "synch_alias": "STATUSS",
@@ -69,10 +65,7 @@
       "clearOnCreate": false
     },
     "sikkerhedszone": {
-      "enum": [
-        "Ja",
-        "Nej"
-      ],
+      "enum": ["Ja", "Nej"],
       "index": 7,
       "title": "Sikkerhedszone",
       "synch_alias": "SIKKERZONE",
@@ -201,11 +194,7 @@
       "clearOnCreate": false
     },
     "isolationsklasse": {
-      "enum": [
-        "0",
-        "I",
-        "II"
-      ],
+      "enum": ["0", "I", "II"],
       "index": 21,
       "title": "Isolationsklasse",
       "synch_alias": "ISOLAT_KLS",
@@ -298,12 +287,7 @@
       "clearOnCreate": false
     },
     "udvidet_hovedeftersyn": {
-      "enum": [
-        "Gruppe 1",
-        "Gruppe 2",
-        "Gruppe 3",
-        "Gruppe 4"
-      ],
+      "enum": ["Gruppe 1", "Gruppe 2", "Gruppe 3", "Gruppe 4"],
       "index": 31,
       "title": "Udvidet hovedeftersyn",
       "ui_type": "dropdown",

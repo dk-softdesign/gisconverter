@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiConvertRouteImport } from './routes/api/convert'
+import { Route as ApiDetectCrsRouteImport } from './routes/api/detect-crs'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +23,40 @@ const ApiConvertRoute = ApiConvertRouteImport.update({
   path: '/api/convert',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDetectCrsRoute = ApiDetectCrsRouteImport.update({
+  id: '/api/detect-crs',
+  path: '/api/detect-crs',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/convert': typeof ApiConvertRoute
+  '/api/detect-crs': typeof ApiDetectCrsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/convert': typeof ApiConvertRoute
+  '/api/detect-crs': typeof ApiDetectCrsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/convert': typeof ApiConvertRoute
+  '/api/detect-crs': typeof ApiDetectCrsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/convert'
+  fullPaths: '/' | '/api/convert' | '/api/detect-crs'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/convert'
-  id: '__root__' | '/' | '/api/convert'
+  to: '/' | '/api/convert' | '/api/detect-crs'
+  id: '__root__' | '/' | '/api/convert' | '/api/detect-crs'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiConvertRoute: typeof ApiConvertRoute
+  ApiDetectCrsRoute: typeof ApiDetectCrsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiConvertRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/detect-crs': {
+      id: '/api/detect-crs'
+      path: '/api/detect-crs'
+      fullPath: '/api/detect-crs'
+      preLoaderRoute: typeof ApiDetectCrsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiConvertRoute: ApiConvertRoute,
+  ApiDetectCrsRoute: ApiDetectCrsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
 import { CheckCircle2, Loader2, UploadCloud, XCircle } from "lucide-react";
 
@@ -13,6 +13,12 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { BulkEditDialog } from "#/components/bulk-edit-dialog";
+import {
+  CrsDetectionHint,
+  commonCrsMatches,
+  type CrsDetection,
+  type FileCrsMatches,
+} from "#/components/crs-detection-hint";
 import { FeatureFilterBar, type PropertyFilter } from "#/components/feature-filter-bar";
 import { FeatureList } from "#/components/feature-list";
 import { GeoJsonMap } from "#/components/geojson-map";
@@ -22,8 +28,9 @@ import { SchemaValidationPanel } from "#/components/schema-validation-panel";
 import { ThemeToggle } from "#/components/theme-toggle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { collectFilesFromDataTransfer } from "#/lib/collect-files";
-import { DEFAULT_SOURCE_CRS, SUPPORTED_SOURCE_CRS, isSupportedSourceCrs } from "#/lib/crs";
+import { DEFAULT_SOURCE_CRS, SUPPORTED_SOURCE_CRS } from "#/lib/crs";
 import { groupNameOf } from "#/lib/layer-colors";
+import type { PropertyRecord } from "#/lib/property-value";
 import { cn } from "#/lib/utils";
 
 const SUPPORTED_EXTENSIONS = [".dxf", ".zip", ".xlsx"];
@@ -40,8 +47,6 @@ interface ConvertResponse {
   warnings: string[];
 }
 
-const SOURCE_CRS_STORAGE_KEY = "gisconverter:sourceCrs";
-
 function stringifyPropertyValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   return String(value);
@@ -56,7 +61,9 @@ interface FileStatus {
 function Home() {
   const [files, setFiles] = useState<File[]>([]);
   const [fileStatuses, setFileStatuses] = useState<FileStatus[]>([]);
-  const [sourceCrs, setSourceCrsState] = useState(DEFAULT_SOURCE_CRS);
+  const [sourceCrs, setSourceCrs] = useState(DEFAULT_SOURCE_CRS);
+  const [crsDetection, setCrsDetection] = useState<CrsDetection | null>(null);
+  const detectionRequestId = useRef(0);
   const [status, setStatus] = useState<"idle" | "converting" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ConvertResponse | null>(null);
@@ -74,30 +81,6 @@ function Home() {
   const [isUploadCollapsed, setIsUploadCollapsed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const nextFilterId = useRef(0);
-
-  useEffect(() => {
-    // Reads localStorage, so this can only happen client-side post-mount; the
-    // initial SSR/client render must both use the default to avoid a
-    // hydration mismatch, hence setting state from an effect here.
-    try {
-      const saved = localStorage.getItem(SOURCE_CRS_STORAGE_KEY);
-      // oxlint-disable-next-line react/set-state-in-effect
-      if (saved && isSupportedSourceCrs(saved)) setSourceCrsState(saved);
-    } catch {
-      // localStorage unavailable (private browsing, etc.) — fall back to the default.
-    }
-  }, []);
-
-  // Persist only in response to an explicit user choice (not as an effect
-  // reacting to `sourceCrs`) so it can't race with the mount-time read above.
-  function setSourceCrs(next: string) {
-    setSourceCrsState(next);
-    try {
-      localStorage.setItem(SOURCE_CRS_STORAGE_KEY, next);
-    } catch {
-      // ignore
-    }
-  }
 
   const layers = useMemo(() => {
     if (!result) return [];
@@ -205,7 +188,7 @@ function Home() {
     });
   }
 
-  function applyBulkEdit(key: string, value: string | number | boolean | null) {
+  function applyBulkEdit(updates: Map<GeoJSON.Feature, PropertyRecord>) {
     setResult((prev) => {
       if (!prev) return prev;
       return {
@@ -213,7 +196,7 @@ function Home() {
         featureCollection: {
           ...prev.featureCollection,
           features: prev.featureCollection.features.map((f) =>
-            selectedFeatures.has(f) ? { ...f, properties: { ...f.properties, [key]: value } } : f,
+            updates.has(f) ? { ...f, properties: updates.get(f)! } : f,
           ),
         },
       };
@@ -231,7 +214,7 @@ function Home() {
     setLayerSchemaIds((prev) => ({ ...prev, [layer]: schemaId }));
   }
 
-  function applyPropertyRename(layer: string, renameMap: Record<string, string>) {
+  function applyPropertyRename(layer: string, renameMap: Record<string, string | null>) {
     setResult((prev) => {
       if (!prev) return prev;
       return {
@@ -242,7 +225,13 @@ function Home() {
             if (groupNameOf(f) !== layer) return f;
             const renamed: GeoJSON.GeoJsonProperties = {};
             for (const [key, value] of Object.entries(f.properties ?? {})) {
-              renamed[renameMap[key] ?? key] = value;
+              if (!(key in renameMap)) {
+                renamed[key] = value;
+                continue;
+              }
+              const target = renameMap[key];
+              if (target === null) continue;
+              renamed[target] = value;
             }
             return { ...f, properties: renamed };
           }),
@@ -264,6 +253,41 @@ function Home() {
         ? `Skipped ${rejectedCount} unsupported file${rejectedCount === 1 ? "" : "s"} — only .dxf, .zip (Shapefile), and .xlsx are supported.`
         : null,
     );
+    setSourceCrs(DEFAULT_SOURCE_CRS);
+    void detectCrs(supported);
+  }
+
+  // DXF files carry no CRS of their own, so ask the server which source CRS
+  // their coordinates fit and select it, unless the default already fits.
+  async function detectCrs(selected: File[]) {
+    const requestId = ++detectionRequestId.current;
+    const dxfFiles = selected.filter((f) => f.name.toLowerCase().endsWith(".dxf"));
+    if (dxfFiles.length === 0) {
+      setCrsDetection(null);
+      return;
+    }
+    setCrsDetection({ status: "detecting" });
+    const results = await Promise.all(
+      dxfFiles.map(async (file): Promise<FileCrsMatches | null> => {
+        const formData = new FormData();
+        formData.append("file", file);
+        try {
+          const response = await fetch("/api/detect-crs", { method: "POST", body: formData });
+          if (!response.ok) return null;
+          const data = (await response.json()) as { matches: string[] };
+          return { fileName: file.name, matches: data.matches };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    // A newer selection has started its own detection; drop this stale one.
+    if (requestId !== detectionRequestId.current) return;
+    const detected = results.filter((r) => r !== null);
+    const common = commonCrsMatches(detected);
+    const crs = common.includes(DEFAULT_SOURCE_CRS) ? DEFAULT_SOURCE_CRS : common[0];
+    if (crs) setSourceCrs(crs);
+    setCrsDetection({ status: "done", files: detected, autoSelected: crs });
   }
 
   async function handleConvert() {
@@ -464,6 +488,11 @@ function Home() {
                     ))}
                   </SelectContent>
                 </Select>
+                <CrsDetectionHint
+                  detection={crsDetection}
+                  sourceCrs={sourceCrs}
+                  onUse={setSourceCrs}
+                />
                 <p className="text-sm text-muted-foreground">
                   Used when the file doesn&apos;t specify its own coordinate system — always for
                   DXF; for a Shapefile only if it has no .prj file; for Excel only if its geom
@@ -475,7 +504,11 @@ function Home() {
               <div className="flex gap-3">
                 <Button
                   type="button"
-                  disabled={files.length === 0 || status === "converting"}
+                  disabled={
+                    files.length === 0 ||
+                    status === "converting" ||
+                    crsDetection?.status === "detecting"
+                  }
                   onClick={handleConvert}
                 >
                   {status === "converting" && <Loader2 className="size-4 animate-spin" />}
@@ -629,7 +662,7 @@ function Home() {
       )}
 
       <PropertyEditDialog
-        key={editSessionId}
+        key={`edit-${editSessionId}`}
         feature={editingFeature}
         open={editingFeature !== null}
         onOpenChange={(open) => {
@@ -641,9 +674,9 @@ function Home() {
         }}
       />
       <BulkEditDialog
-        key={bulkEditSessionId}
+        key={`bulk-edit-${bulkEditSessionId}`}
         open={bulkEditOpen}
-        count={selectedFeatures.size}
+        features={[...selectedFeatures]}
         existingKeys={existingPropertyKeys}
         onOpenChange={setBulkEditOpen}
         onApply={applyBulkEdit}

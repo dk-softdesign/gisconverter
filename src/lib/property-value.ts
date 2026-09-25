@@ -1,8 +1,11 @@
 // Property values arrive from very different sources (DXF text, Excel cells,
 // DBF fields) and this app treats them as string | number | boolean | null.
+export type PropertyValue = string | number | boolean | null;
+export type PropertyRecord = Record<string, PropertyValue>;
+
 // When a user types a replacement value in an edit form, infer the same kind
 // of type a spreadsheet would, rather than always producing a string.
-export function coercePropertyValue(input: string): string | number | boolean | null {
+export function coercePropertyValue(input: string): PropertyValue {
   const trimmed = input.trim();
   if (trimmed.length === 0) return null;
   if (trimmed === "true") return true;

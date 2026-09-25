@@ -37,7 +37,7 @@ interface SchemaValidationPanelProps {
   layerSchemaIds: Record<string, string | null>;
   onLayerSchemaChange: (layer: string, schemaId: string | null) => void;
   onEditFeature: (feature: GeoJSON.Feature) => void;
-  onApplyRename: (layer: string, renameMap: Record<string, string>) => void;
+  onApplyRename: (layer: string, renameMap: Record<string, string | null>) => void;
 }
 
 export function SchemaValidationPanel({
@@ -105,9 +105,10 @@ export function SchemaValidationPanel({
           }}
           layerLabel={mappingLayer}
           schemaLabel={mappingSchemaEntry.label}
+          schemaId={mappingSchemaEntry.id}
           schema={mappingSchemaEntry.schema}
           sourceKeys={mappingSourceKeys}
-          featureCount={mappingFeatures.length}
+          features={mappingFeatures}
           onApply={(renameMap) => {
             onApplyRename(mappingLayer, renameMap);
             setMappingLayer(null);
