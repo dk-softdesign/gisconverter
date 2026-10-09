@@ -4,6 +4,8 @@ import type {} from "@tanstack/react-start";
 import { DEFAULT_SOURCE_CRS, isSupportedSourceCrs } from "#/lib/crs";
 import { convertDxfToGeoJson, type DxfConversionResult } from "#/lib/dxf-to-geojson";
 import { convertExcelToGeoJson, type ExcelConversionResult } from "#/lib/excel-to-geojson";
+import { convertGeoJsonToGeoJson, type GeoJsonConversionResult } from "#/lib/geojson-to-geojson";
+import { convertKmlToGeoJson, type KmlConversionResult } from "#/lib/kml-to-geojson";
 import {
   convertShapefileToGeoJson,
   type ShapefileConversionResult,
@@ -11,7 +13,12 @@ import {
 
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 
-type ConversionResult = DxfConversionResult | ShapefileConversionResult | ExcelConversionResult;
+type ConversionResult =
+  | DxfConversionResult
+  | ShapefileConversionResult
+  | ExcelConversionResult
+  | GeoJsonConversionResult
+  | KmlConversionResult;
 
 function jsonResponse(result: ConversionResult) {
   return Response.json(result, {
@@ -33,9 +40,14 @@ export const Route = createFileRoute("/api/convert")({
         const isDxf = fileName.endsWith(".dxf");
         const isZip = fileName.endsWith(".zip");
         const isExcel = fileName.endsWith(".xlsx");
-        if (!isDxf && !isZip && !isExcel) {
+        const isGeoJson = fileName.endsWith(".geojson") || fileName.endsWith(".json");
+        const isKml = fileName.endsWith(".kml") || fileName.endsWith(".kmz");
+        if (!isDxf && !isZip && !isExcel && !isGeoJson && !isKml) {
           return Response.json(
-            { error: "Only .dxf, .zip (Shapefile), and .xlsx files are supported right now." },
+            {
+              error:
+                "Only .dxf, .zip (Shapefile), .xlsx, .geojson, and .kml/.kmz files are supported right now.",
+            },
             { status: 400 },
           );
         }
@@ -57,6 +69,12 @@ export const Route = createFileRoute("/api/convert")({
           if (isDxf) {
             const text = await file.text();
             return jsonResponse(convertDxfToGeoJson(text, crs));
+          }
+          if (isGeoJson) {
+            return jsonResponse(convertGeoJsonToGeoJson(await file.text(), crs));
+          }
+          if (isKml) {
+            return jsonResponse(await convertKmlToGeoJson(await file.arrayBuffer(), file.name));
           }
           if (isZip) {
             const buffer = await file.arrayBuffer();

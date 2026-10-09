@@ -5,14 +5,8 @@ import { CheckCircle2, Loader2, UploadCloud, XCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert";
 import { Button } from "#/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "#/components/ui/select";
 import { BulkEditDialog } from "#/components/bulk-edit-dialog";
+import { SearchableSelect } from "#/components/searchable-select";
 import {
   CrsDetectionHint,
   commonCrsMatches,
@@ -33,7 +27,7 @@ import { groupNameOf } from "#/lib/layer-colors";
 import type { PropertyRecord } from "#/lib/property-value";
 import { cn } from "#/lib/utils";
 
-const SUPPORTED_EXTENSIONS = [".dxf", ".zip", ".xlsx"];
+const SUPPORTED_EXTENSIONS = [".dxf", ".zip", ".xlsx", ".geojson", ".json", ".kml", ".kmz"];
 
 function isSupportedFile(file: File): boolean {
   const name = file.name.toLowerCase();
@@ -71,6 +65,7 @@ function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
   const [layerSchemaIds, setLayerSchemaIds] = useState<Record<string, string | null>>({});
+  const [layerDuplicateKeys, setLayerDuplicateKeys] = useState<Record<string, string | null>>({});
   const [selectedFeatures, setSelectedFeatures] = useState<Set<GeoJSON.Feature>>(new Set());
   const [editingFeature, setEditingFeature] = useState<GeoJSON.Feature | null>(null);
   const [editSessionId, setEditSessionId] = useState(0);
@@ -188,16 +183,38 @@ function Home() {
     });
   }
 
-  function applyBulkEdit(updates: Map<GeoJSON.Feature, PropertyRecord>) {
+  function deleteFeature(target: GeoJSON.Feature) {
     setResult((prev) => {
       if (!prev) return prev;
       return {
         ...prev,
         featureCollection: {
           ...prev.featureCollection,
-          features: prev.featureCollection.features.map((f) =>
-            updates.has(f) ? { ...f, properties: updates.get(f)! } : f,
-          ),
+          features: prev.featureCollection.features.filter((f) => f !== target),
+        },
+      };
+    });
+    setSelectedFeatures((prev) => {
+      if (!prev.has(target)) return prev;
+      const next = new Set(prev);
+      next.delete(target);
+      return next;
+    });
+  }
+
+  function applyBulkEdit(
+    updates: Map<GeoJSON.Feature, PropertyRecord>,
+    removals: Set<GeoJSON.Feature>,
+  ) {
+    setResult((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        featureCollection: {
+          ...prev.featureCollection,
+          features: prev.featureCollection.features
+            .filter((f) => !removals.has(f))
+            .map((f) => (updates.has(f) ? { ...f, properties: updates.get(f)! } : f)),
         },
       };
     });
@@ -250,7 +267,7 @@ function Home() {
     setStatus(rejectedCount > 0 && supported.length === 0 ? "error" : "idle");
     setError(
       rejectedCount > 0
-        ? `Skipped ${rejectedCount} unsupported file${rejectedCount === 1 ? "" : "s"} — only .dxf, .zip (Shapefile), and .xlsx are supported.`
+        ? `Skipped ${rejectedCount} unsupported file${rejectedCount === 1 ? "" : "s"} — only .dxf, .zip (Shapefile), .xlsx, .geojson, and .kml/.kmz are supported.`
         : null,
     );
     setSourceCrs(DEFAULT_SOURCE_CRS);
@@ -354,6 +371,7 @@ function Home() {
     setResult({ featureCollection: { type: "FeatureCollection", features }, warnings });
     setHiddenLayers(new Set());
     setLayerSchemaIds({});
+    setLayerDuplicateKeys({});
     setSelectedFeatures(new Set());
     setSearchQuery("");
     setPropertyFilters([]);
@@ -370,7 +388,8 @@ function Home() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    const baseName = files[0]?.name.replace(/\.(dxf|zip|xlsx)$/i, "") ?? "converted";
+    const baseName =
+      files[0]?.name.replace(/\.(dxf|zip|xlsx|geojson|json|kml|kmz)$/i, "") ?? "converted";
     link.download =
       files.length > 1 ? `${baseName}-and-${files.length - 1}-more.geojson` : `${baseName}.geojson`;
     link.click();
@@ -385,7 +404,8 @@ function Home() {
             <h1 className="text-4xl font-bold">GIS Converter</h1>
             <p className="mt-2 text-lg text-muted-foreground">
               Convert DXF, Shapefile (zipped), or Excel files — one at a time or in bulk — to
-              GeoJSON and preview them together on a map.
+              GeoJSON and preview them together on a map, or load an existing GeoJSON file to edit
+              and validate it against a schema.
             </p>
           </div>
           <ClientOnly>
@@ -423,8 +443,9 @@ function Home() {
             <CardHeader>
               <CardTitle>Convert files</CardTitle>
               <CardDescription>
-                Currently supported: DXF, Shapefile (.zip), Excel (.xlsx) → GeoJSON. Select or drop
-                multiple files, or a whole folder, to convert them together.
+                Currently supported: DXF, Shapefile (.zip), Excel (.xlsx), KML/KMZ → GeoJSON, plus
+                existing GeoJSON files for editing and schema validation. Select or drop multiple
+                files, or a whole folder, to convert them together.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
@@ -432,7 +453,7 @@ function Home() {
                 <input
                   ref={inputRef}
                   type="file"
-                  accept=".dxf,.zip,.xlsx"
+                  accept=".dxf,.zip,.xlsx,.geojson,.json,.kml,.kmz"
                   multiple
                   className="hidden"
                   onChange={(e) => selectFiles([...(e.target.files ?? [])])}
@@ -460,7 +481,8 @@ function Home() {
                   <UploadCloud className="size-8 text-muted-foreground" />
                   <p className="text-sm">
                     <span className="font-medium">
-                      Drag and drop .dxf, .zip (Shapefile), or .xlsx files (or a folder) here
+                      Drag and drop .dxf, .zip (Shapefile), .xlsx, .geojson, or .kml/.kmz files (or
+                      a folder) here
                     </span>
                     , or click to browse.
                   </p>
@@ -476,18 +498,18 @@ function Home() {
                 <label className="text-sm font-medium" htmlFor="source-crs">
                   Source coordinate system
                 </label>
-                <Select value={sourceCrs} onValueChange={setSourceCrs}>
-                  <SelectTrigger id="source-crs" className="w-full sm:w-100">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SUPPORTED_SOURCE_CRS.map((crs) => (
-                      <SelectItem key={crs.code} value={crs.code}>
-                        {crs.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  id="source-crs"
+                  className="w-full sm:w-100"
+                  value={sourceCrs}
+                  onValueChange={setSourceCrs}
+                  options={SUPPORTED_SOURCE_CRS.map((crs) => ({
+                    value: crs.code,
+                    label: crs.label,
+                    keywords: [crs.code],
+                  }))}
+                  searchPlaceholder="Search coordinate systems…"
+                />
                 <CrsDetectionHint
                   detection={crsDetection}
                   sourceCrs={sourceCrs}
@@ -496,8 +518,10 @@ function Home() {
                 <p className="text-sm text-muted-foreground">
                   Used when the file doesn&apos;t specify its own coordinate system — always for
                   DXF; for a Shapefile only if it has no .prj file; for Excel only if its geom
-                  column (or coordinate columns) don&apos;t declare one. The output GeoJSON is
-                  always in WGS 84 (EPSG:4326).
+                  column (or coordinate columns) don&apos;t declare one; for GeoJSON only if it has
+                  no &quot;crs&quot; member and its coordinates aren&apos;t lon/lat. The output
+                  GeoJSON is always in WGS 84 (EPSG:4326). KML is always WGS 84, so this setting
+                  doesn&apos;t apply to it.
                 </p>
               </div>
 
@@ -652,6 +676,11 @@ function Home() {
                   layers={layers}
                   layerSchemaIds={layerSchemaIds}
                   onLayerSchemaChange={setLayerSchema}
+                  layerDuplicateKeys={layerDuplicateKeys}
+                  onLayerDuplicateKeyChange={(layer, key) =>
+                    setLayerDuplicateKeys((prev) => ({ ...prev, [layer]: key }))
+                  }
+                  onDeleteFeature={deleteFeature}
                   onEditFeature={openEditDialog}
                   onApplyRename={applyPropertyRename}
                 />

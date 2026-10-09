@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Trash2, XCircle } from "lucide-react";
 
 import { Button } from "#/components/ui/button";
 import {
@@ -10,18 +10,14 @@ import {
   CardHeader,
   CardTitle,
 } from "#/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "#/components/ui/select";
 import { PropertyMappingDialog } from "#/components/property-mapping-dialog";
+import { SearchableSelect } from "#/components/searchable-select";
 import { getLayerColor, groupNameOf } from "#/lib/layer-colors";
 import { getSchemaEntry, schemaRegistry } from "#/lib/gis-schemas";
 import {
+  findDuplicates,
   INTERNAL_PROPERTY_KEYS,
+  mergeValidationResults,
   summarizeValidation,
   validateFeatureCollection,
   type FeatureValidationResult,
@@ -29,6 +25,7 @@ import {
 import { cn } from "#/lib/utils";
 
 const NO_SCHEMA = "__none__";
+const NO_DUPLICATE_KEY = "__none__";
 const ISSUE_DISPLAY_LIMIT = 50;
 
 interface SchemaValidationPanelProps {
@@ -36,7 +33,10 @@ interface SchemaValidationPanelProps {
   layers: string[];
   layerSchemaIds: Record<string, string | null>;
   onLayerSchemaChange: (layer: string, schemaId: string | null) => void;
+  layerDuplicateKeys: Record<string, string | null>;
+  onLayerDuplicateKeyChange: (layer: string, key: string | null) => void;
   onEditFeature: (feature: GeoJSON.Feature) => void;
+  onDeleteFeature: (feature: GeoJSON.Feature) => void;
   onApplyRename: (layer: string, renameMap: Record<string, string | null>) => void;
 }
 
@@ -45,7 +45,10 @@ export function SchemaValidationPanel({
   layers,
   layerSchemaIds,
   onLayerSchemaChange,
+  layerDuplicateKeys,
+  onLayerDuplicateKeyChange,
   onEditFeature,
+  onDeleteFeature,
   onApplyRename,
 }: SchemaValidationPanelProps) {
   const [mappingLayer, setMappingLayer] = useState<string | null>(null);
@@ -92,7 +95,10 @@ export function SchemaValidationPanel({
           features={featuresByLayer[layer] ?? []}
           schemaId={layerSchemaIds[layer] ?? null}
           onSchemaChange={(id) => onLayerSchemaChange(layer, id)}
+          duplicateKey={layerDuplicateKeys[layer] ?? null}
+          onDuplicateKeyChange={(key) => onLayerDuplicateKeyChange(layer, key)}
           onEditFeature={onEditFeature}
+          onDeleteFeature={onDeleteFeature}
           onOpenMapping={() => openMapping(layer)}
         />
       ))}
@@ -124,7 +130,10 @@ interface LayerValidationSectionProps {
   features: GeoJSON.Feature[];
   schemaId: string | null;
   onSchemaChange: (schemaId: string | null) => void;
+  duplicateKey: string | null;
+  onDuplicateKeyChange: (key: string | null) => void;
   onEditFeature: (feature: GeoJSON.Feature) => void;
+  onDeleteFeature: (feature: GeoJSON.Feature) => void;
   onOpenMapping: () => void;
 }
 
@@ -133,19 +142,37 @@ function LayerValidationSection({
   features,
   schemaId,
   onSchemaChange,
+  duplicateKey,
+  onDuplicateKeyChange,
   onEditFeature,
+  onDeleteFeature,
   onOpenMapping,
 }: LayerValidationSectionProps) {
   const schemaEntry = getSchemaEntry(schemaId);
 
+  const propertyKeys = useMemo(
+    () =>
+      [...new Set(features.flatMap((f) => Object.keys(f.properties ?? {})))]
+        .filter((key) => !INTERNAL_PROPERTY_KEYS.has(key))
+        .sort(),
+    [features],
+  );
+
   const results: FeatureValidationResult[] = useMemo(
     () =>
-      schemaEntry
-        ? validateFeatureCollection({ type: "FeatureCollection", features }, schemaEntry.schema)
-        : [],
-    [schemaEntry, features],
+      mergeValidationResults(
+        schemaEntry
+          ? validateFeatureCollection({ type: "FeatureCollection", features }, schemaEntry.schema)
+          : [],
+        duplicateKey ? findDuplicates(features, duplicateKey) : [],
+      ),
+    [schemaEntry, duplicateKey, features],
   );
-  const summary = schemaEntry ? summarizeValidation(features.length, results) : null;
+  const isChecking = schemaEntry !== undefined || duplicateKey !== null;
+  const summary = isChecking ? summarizeValidation(features.length, results) : null;
+  const duplicateFeatureCount = results.filter((result) =>
+    result.issues.some((issue) => issue.kind === "duplicate"),
+  ).length;
 
   return (
     <Card>
@@ -160,27 +187,43 @@ function LayerValidationSection({
         <CardDescription>
           {features.length} feature{features.length === 1 ? "" : "s"}
         </CardDescription>
-        <CardAction>
-          <Select
+        <CardAction className="flex flex-wrap justify-end gap-2">
+          <SearchableSelect
+            className="w-56"
+            aria-label="Check duplicates on"
+            value={duplicateKey ?? NO_DUPLICATE_KEY}
+            onValueChange={(value) =>
+              onDuplicateKeyChange(value === NO_DUPLICATE_KEY ? null : value)
+            }
+            options={[
+              { value: NO_DUPLICATE_KEY, label: "No duplicate check" },
+              ...propertyKeys.map((key) => ({
+                value: key,
+                label: `Duplicates in ${key}`,
+                keywords: [key],
+              })),
+            ]}
+            searchPlaceholder="Search properties…"
+          />
+          <SearchableSelect
+            className="w-56"
+            aria-label="Schema"
             value={schemaId ?? NO_SCHEMA}
             onValueChange={(value) => onSchemaChange(value === NO_SCHEMA ? null : value)}
-          >
-            <SelectTrigger className="w-56">
-              <SelectValue placeholder="No schema selected" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NO_SCHEMA}>No schema</SelectItem>
-              {schemaRegistry.map((entry) => (
-                <SelectItem key={entry.id} value={entry.id}>
-                  {entry.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={[
+              { value: NO_SCHEMA, label: "No schema" },
+              ...schemaRegistry.map((entry) => ({
+                value: entry.id,
+                label: entry.label,
+                keywords: [entry.id],
+              })),
+            ]}
+            searchPlaceholder="Search schemas…"
+          />
         </CardAction>
       </CardHeader>
 
-      {schemaEntry && summary && (
+      {summary && (
         <CardContent className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
@@ -197,15 +240,23 @@ function LayerValidationSection({
                 only
               </span>
             )}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="ml-auto"
-              onClick={onOpenMapping}
-            >
-              Match property names
-            </Button>
+            {duplicateKey && (
+              <span className="text-muted-foreground">
+                {duplicateFeatureCount} feature{duplicateFeatureCount === 1 ? "" : "s"} share a{" "}
+                {duplicateKey} value
+              </span>
+            )}
+            {schemaEntry && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="ml-auto"
+                onClick={onOpenMapping}
+              >
+                Match property names
+              </Button>
+            )}
           </div>
 
           {results.length > 0 && (
@@ -235,14 +286,27 @@ function LayerValidationSection({
                         ))}
                       </ul>
                     </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onEditFeature(feature)}
-                    >
-                      Fix
-                    </Button>
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onEditFeature(feature)}
+                      >
+                        Fix
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        aria-label={`Delete feature #${result.featureIndex + 1}`}
+                        title="Delete feature"
+                        onClick={() => onDeleteFeature(feature)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
                   </li>
                 );
               })}

@@ -3,6 +3,7 @@ import addFormats from "ajv-formats";
 import type { ErrorObject, ValidateFunction } from "ajv";
 
 import type { GisSchema } from "#/lib/gis-schemas";
+import { propertyValueToInputString } from "#/lib/property-value";
 
 // Properties the converters themselves attach (grouping/legend metadata),
 // never part of a target schema — never worth flagging as "unrecognized" or
@@ -33,6 +34,7 @@ export type ValidationIssueKind =
   | "format"
   | "conditional"
   | "unrecognized"
+  | "duplicate"
   | "other";
 
 export interface ValidationIssue {
@@ -136,6 +138,66 @@ export function validateFeatureCollection(
   });
 
   return results;
+}
+
+const DUPLICATE_PEERS_SHOWN = 5;
+
+// Flags every feature whose `key` value is shared with another feature. Values
+// are compared as trimmed strings (so 42 and "42" collide); empty values are
+// skipped — a missing value is a "required" problem, not a duplicate.
+export function findDuplicates(
+  features: GeoJSON.Feature[],
+  key: string,
+): FeatureValidationResult[] {
+  const indexesByValue = new Map<string, number[]>();
+  features.forEach((feature, index) => {
+    const text = propertyValueToInputString(feature.properties?.[key]).trim();
+    if (!text) return;
+    const indexes = indexesByValue.get(text);
+    if (indexes) indexes.push(index);
+    else indexesByValue.set(text, [index]);
+  });
+
+  const results: FeatureValidationResult[] = [];
+  for (const [value, indexes] of indexesByValue) {
+    if (indexes.length < 2) continue;
+    for (const featureIndex of indexes) {
+      const peers = indexes.filter((i) => i !== featureIndex).map((i) => `#${i + 1}`);
+      const shown = peers.slice(0, DUPLICATE_PEERS_SHOWN).join(", ");
+      const more =
+        peers.length > DUPLICATE_PEERS_SHOWN
+          ? ` and ${peers.length - DUPLICATE_PEERS_SHOWN} more`
+          : "";
+      results.push({
+        featureIndex,
+        issues: [
+          {
+            kind: "duplicate",
+            propertyKey: key,
+            message: `"${key}" value ${JSON.stringify(value)} is also used by feature ${shown}${more}.`,
+            severity: "error",
+          },
+        ],
+      });
+    }
+  }
+  return results;
+}
+
+// Combines per-feature results from several checks into one entry per
+// feature, ordered by feature index.
+export function mergeValidationResults(
+  ...sources: FeatureValidationResult[][]
+): FeatureValidationResult[] {
+  const byIndex = new Map<number, ValidationIssue[]>();
+  for (const results of sources) {
+    for (const { featureIndex, issues } of results) {
+      byIndex.set(featureIndex, [...(byIndex.get(featureIndex) ?? []), ...issues]);
+    }
+  }
+  return [...byIndex]
+    .sort(([a], [b]) => a - b)
+    .map(([featureIndex, issues]) => ({ featureIndex, issues }));
 }
 
 export function summarizeValidation(

@@ -62,7 +62,7 @@ image: ## Build the Docker image (override name/tag via IMAGE_NAME/IMAGE_TAG)
 
 .PHONY: run
 run: image ## Build (if needed) and run the image (override port via PORT, default 3000)
-	docker run --rm -d --name $(CONTAINER_NAME) -p $(PORT):3000 $(IMAGE)
+	docker run --rm -d --name $(CONTAINER_NAME) -p $(PORT):3000 $(if $(wildcard .env),--env-file .env) $(IMAGE)
 	@echo "Running at http://localhost:$(PORT) — logs: make logs, stop: make stop"
 
 .PHONY: stop

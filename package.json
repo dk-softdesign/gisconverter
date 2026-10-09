@@ -18,6 +18,7 @@
     "check": "npm run lint && npm run format:check && npm run typecheck"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.1",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-query": "latest",
@@ -27,6 +28,8 @@
     "@tanstack/react-router-ssr-query": "latest",
     "@tanstack/react-start": "latest",
     "@tanstack/react-virtual": "^3.14.13",
+    "@tmcw/togeojson": "^7.1.2",
+    "@xmldom/xmldom": "^0.9.12",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "class-variance-authority": "^0.7.1",
@@ -62,7 +65,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.1",
     "exceljs": "^4.4.0",
-    "oxfmt": "^0.68.0",
+    "oxfmt": "^0.72.0",
     "oxlint": "^1.83.0",
     "typescript": "^7.0.2",
     "vite": "^8.0.0"
