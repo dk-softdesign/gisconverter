@@ -1,10 +1,19 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
-import { CheckCircle2, Loader2, UploadCloud, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, Redo2, Undo2, UploadCloud, XCircle } from "lucide-react";
+import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert";
 import { Button } from "#/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#/components/ui/card";
+import { Checkbox } from "#/components/ui/checkbox";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "#/components/ui/card";
 import { BulkEditDialog } from "#/components/bulk-edit-dialog";
 import { SearchableSelect } from "#/components/searchable-select";
 import {
@@ -23,9 +32,33 @@ import { ThemeToggle } from "#/components/theme-toggle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { collectFilesFromDataTransfer } from "#/lib/collect-files";
 import { DEFAULT_SOURCE_CRS, SUPPORTED_SOURCE_CRS } from "#/lib/crs";
-import { groupNameOf } from "#/lib/layer-colors";
+import { groupNameOf, ISSUE_COLORS } from "#/lib/layer-colors";
 import type { PropertyRecord } from "#/lib/property-value";
+import { getSchemaEntry } from "#/lib/gis-schemas";
+import {
+  validateLayer,
+  worstSeverity,
+  type FeatureValidationResult,
+  type IssueSeverity,
+} from "#/lib/schema-validation";
+import { useUndoHistory } from "#/lib/undo-history";
 import { cn } from "#/lib/utils";
+
+// One toast slot for edit/undo notices, so a new change replaces the previous
+// toast instead of stacking Undo buttons that would each undo the latest step.
+const HISTORY_TOAST_ID = "edit-history";
+
+function plural(count: number, noun: string) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+// Ctrl/Cmd+Z inside a text field or a dialog belongs to that field/dialog,
+// not to the app-level history.
+function isOwnUndoContext(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.closest('[role="dialog"]')) return true;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
 
 const SUPPORTED_EXTENSIONS = [".dxf", ".zip", ".xlsx", ".geojson", ".json", ".kml", ".kmz"];
 
@@ -60,8 +93,10 @@ function Home() {
   const detectionRequestId = useRef(0);
   const [status, setStatus] = useState<"idle" | "converting" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<ConvertResponse | null>(null);
-  const [version, setVersion] = useState(0);
+  // Every change to the converted data goes through this history, so it can
+  // be undone. `result` is the current version.
+  const history = useUndoHistory<ConvertResponse | null>(null);
+  const result = history.present;
   const [isDragging, setIsDragging] = useState(false);
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
   const [layerSchemaIds, setLayerSchemaIds] = useState<Record<string, string | null>>({});
@@ -74,6 +109,12 @@ function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [propertyFilters, setPropertyFilters] = useState<PropertyFilter[]>([]);
   const [isUploadCollapsed, setIsUploadCollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState("map");
+  const [highlightIssues, setHighlightIssues] = useState(true);
+  const [focusFeature, setFocusFeature] = useState<GeoJSON.Feature | null>(null);
+  // Bumps per conversion; the map only re-fits its view when this (or the
+  // visible layers) change.
+  const [conversionId, setConversionId] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const nextFilterId = useRef(0);
 
@@ -91,9 +132,139 @@ function Home() {
     };
   }, [result, hiddenLayers]);
 
-  // Identifies this exact combination of conversion + visible layers, so the
-  // map's vector layer remounts whenever what it should render changes.
-  const mapVersion = `${version}:${[...hiddenLayers].sort().join(",")}`;
+  const featuresByLayer = useMemo(() => {
+    const map: Record<string, GeoJSON.Feature[]> = {};
+    for (const layer of layers) map[layer] = [];
+    for (const feature of result?.featureCollection.features ?? []) {
+      (map[groupNameOf(feature)] ??= []).push(feature);
+    }
+    return map;
+  }, [result, layers]);
+
+  // Validation runs here, once, so the Validation tab and the map's issue
+  // highlighting always agree. null for a layer with nothing to check.
+  const validationByLayer = useMemo(() => {
+    const byLayer: Record<string, FeatureValidationResult[] | null> = {};
+    for (const layer of layers) {
+      const schema = getSchemaEntry(layerSchemaIds[layer])?.schema;
+      const duplicateKey = layerDuplicateKeys[layer] ?? null;
+      byLayer[layer] =
+        schema || duplicateKey
+          ? validateLayer(featuresByLayer[layer] ?? [], schema, duplicateKey)
+          : null;
+    }
+    return byLayer;
+  }, [layers, featuresByLayer, layerSchemaIds, layerDuplicateKeys]);
+
+  const isValidating = Object.values(validationByLayer).some((results) => results !== null);
+
+  const issueSeverity = useMemo(() => {
+    const severity = new Map<GeoJSON.Feature, IssueSeverity>();
+    for (const [layer, results] of Object.entries(validationByLayer)) {
+      for (const { featureIndex, issues } of results ?? []) {
+        const feature = featuresByLayer[layer]?.[featureIndex];
+        if (feature) severity.set(feature, worstSeverity(issues));
+      }
+    }
+    return severity;
+  }, [validationByLayer, featuresByLayer]);
+  const issueCounts = useMemo(() => {
+    const counts = { error: 0, warning: 0 };
+    for (const value of issueSeverity.values()) counts[value]++;
+    return counts;
+  }, [issueSeverity]);
+  const showIssuesOnMap = highlightIssues && isValidating;
+
+  const hiddenLayersKey = [...hiddenLayers].sort().join(",");
+  const mapFitKey = `${conversionId}:${hiddenLayersKey}`;
+  // Identifies everything the map's vector layer draws — data revision,
+  // visible layers and issue styling — so it remounts whenever any of them
+  // change, including after edits, deletes, undo and redo.
+  const mapVersion = `${history.revision}:${hiddenLayersKey}:${showIssuesOnMap ? JSON.stringify([layerSchemaIds, layerDuplicateKeys]) : ""}`;
+
+  function selectFeatures(features: GeoJSON.Feature[]) {
+    setSelectedFeatures(new Set(features));
+    toast(`Selected ${plural(features.length, "feature")}`, {
+      id: HISTORY_TOAST_ID,
+      action: { label: "Edit selected", onClick: openBulkEdit },
+    });
+  }
+
+  const clearFocusFeature = useCallback(() => setFocusFeature(null), []);
+
+  function showOnMap(feature: GeoJSON.Feature) {
+    const layer = groupNameOf(feature);
+    if (hiddenLayers.has(layer)) {
+      setHiddenLayers((prev) => {
+        const next = new Set(prev);
+        next.delete(layer);
+        return next;
+      });
+    }
+    setFocusFeature(feature);
+    setActiveTab("map");
+  }
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || isOwnUndoContext(event.target)) return;
+      const key = event.key.toLowerCase();
+      if (key === "z" && !event.shiftKey && history.undoLabel) {
+        event.preventDefault();
+        undoChange();
+      } else if ((key === "y" || (key === "z" && event.shiftKey)) && history.redoLabel) {
+        event.preventDefault();
+        redoChange();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
+  function commitFeatures(
+    label: string,
+    transform: (features: GeoJSON.Feature[]) => GeoJSON.Feature[],
+    { notify = true } = {},
+  ) {
+    history.commit(label, (prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        featureCollection: {
+          ...prev.featureCollection,
+          features: transform(prev.featureCollection.features),
+        },
+      };
+    });
+    if (notify) {
+      toast(label, {
+        id: HISTORY_TOAST_ID,
+        action: { label: "Undo", onClick: () => undoChange(label) },
+      });
+    }
+  }
+
+  // Selections hold feature object references; after undo/redo those may no
+  // longer be in the data, so the selection is dropped rather than left stale.
+  function undoChange(label = history.undoLabel) {
+    if (!label) return;
+    history.undo();
+    setSelectedFeatures(new Set());
+    toast(`Undone: ${label}`, {
+      id: HISTORY_TOAST_ID,
+      action: { label: "Redo", onClick: () => redoChange(label) },
+    });
+  }
+
+  function redoChange(label = history.redoLabel) {
+    if (!label) return;
+    history.redo();
+    setSelectedFeatures(new Set());
+    toast(`Redone: ${label}`, {
+      id: HISTORY_TOAST_ID,
+      action: { label: "Undo", onClick: () => undoChange(label) },
+    });
+  }
 
   function toggleLayer(layer: string) {
     setHiddenLayers((prev) => {
@@ -169,31 +340,15 @@ function Home() {
     target: GeoJSON.Feature,
     properties: Record<string, string | number | boolean | null>,
   ) {
-    setResult((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        featureCollection: {
-          ...prev.featureCollection,
-          features: prev.featureCollection.features.map((f) =>
-            f === target ? { ...f, properties } : f,
-          ),
-        },
-      };
-    });
+    commitFeatures(
+      "Edited feature properties",
+      (features) => features.map((f) => (f === target ? { ...f, properties } : f)),
+      { notify: false },
+    );
   }
 
   function deleteFeature(target: GeoJSON.Feature) {
-    setResult((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        featureCollection: {
-          ...prev.featureCollection,
-          features: prev.featureCollection.features.filter((f) => f !== target),
-        },
-      };
-    });
+    commitFeatures("Deleted 1 feature", (features) => features.filter((f) => f !== target));
     setSelectedFeatures((prev) => {
       if (!prev.has(target)) return prev;
       const next = new Set(prev);
@@ -206,18 +361,15 @@ function Home() {
     updates: Map<GeoJSON.Feature, PropertyRecord>,
     removals: Set<GeoJSON.Feature>,
   ) {
-    setResult((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        featureCollection: {
-          ...prev.featureCollection,
-          features: prev.featureCollection.features
-            .filter((f) => !removals.has(f))
-            .map((f) => (updates.has(f) ? { ...f, properties: updates.get(f)! } : f)),
-        },
-      };
-    });
+    const parts = [
+      removals.size > 0 && `Removed ${plural(removals.size, "feature")}`,
+      updates.size > 0 && `Edited ${plural(updates.size, "feature")}`,
+    ].filter(Boolean);
+    commitFeatures(parts.join(", "), (features) =>
+      features
+        .filter((f) => !removals.has(f))
+        .map((f) => (updates.has(f) ? { ...f, properties: updates.get(f)! } : f)),
+    );
     setSelectedFeatures(new Set());
     setBulkEditOpen(false);
   }
@@ -232,29 +384,25 @@ function Home() {
   }
 
   function applyPropertyRename(layer: string, renameMap: Record<string, string | null>) {
-    setResult((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        featureCollection: {
-          ...prev.featureCollection,
-          features: prev.featureCollection.features.map((f) => {
-            if (groupNameOf(f) !== layer) return f;
-            const renamed: GeoJSON.GeoJsonProperties = {};
-            for (const [key, value] of Object.entries(f.properties ?? {})) {
-              if (!(key in renameMap)) {
-                renamed[key] = value;
-                continue;
-              }
-              const target = renameMap[key];
-              if (target === null) continue;
-              renamed[target] = value;
+    const propertyCount = Object.keys(renameMap).length;
+    commitFeatures(
+      `Renamed or removed ${plural(propertyCount, "property")} on ${layer}`,
+      (features) =>
+        features.map((f) => {
+          if (groupNameOf(f) !== layer) return f;
+          const renamed: GeoJSON.GeoJsonProperties = {};
+          for (const [key, value] of Object.entries(f.properties ?? {})) {
+            if (!(key in renameMap)) {
+              renamed[key] = value;
+              continue;
             }
-            return { ...f, properties: renamed };
-          }),
-        },
-      };
-    });
+            const target = renameMap[key];
+            if (target === null) continue;
+            renamed[target] = value;
+          }
+          return { ...f, properties: renamed };
+        }),
+    );
   }
 
   function selectFiles(next: File[]) {
@@ -263,7 +411,7 @@ function Home() {
 
     setFiles(supported);
     setFileStatuses([]);
-    setResult(null);
+    history.reset(null);
     setStatus(rejectedCount > 0 && supported.length === 0 ? "error" : "idle");
     setError(
       rejectedCount > 0
@@ -368,14 +516,15 @@ function Home() {
       return;
     }
 
-    setResult({ featureCollection: { type: "FeatureCollection", features }, warnings });
+    history.reset({ featureCollection: { type: "FeatureCollection", features }, warnings });
     setHiddenLayers(new Set());
+    setConversionId((id) => id + 1);
+    setFocusFeature(null);
     setLayerSchemaIds({});
     setLayerDuplicateKeys({});
     setSelectedFeatures(new Set());
     setSearchQuery("");
     setPropertyFilters([]);
-    setVersion((v) => v + 1);
     setStatus("idle");
     setIsUploadCollapsed(true);
   }
@@ -605,18 +754,85 @@ function Home() {
               {result.featureCollection.features.length === 1 ? "" : "s"}, reprojected to WGS 84
               (EPSG:4326).
             </CardDescription>
+            <CardAction className="flex gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!history.undoLabel}
+                title={
+                  history.undoLabel ? `Undo: ${history.undoLabel} (Ctrl+Z)` : "Nothing to undo"
+                }
+                onClick={() => undoChange()}
+              >
+                <Undo2 />
+                Undo
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!history.redoLabel}
+                title={
+                  history.redoLabel
+                    ? `Redo: ${history.redoLabel} (Ctrl+Shift+Z)`
+                    : "Nothing to redo"
+                }
+                onClick={() => redoChange()}
+              >
+                <Redo2 />
+                Redo
+              </Button>
+            </CardAction>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {layers.length > 1 && (
               <LayerLegend layers={layers} hiddenLayers={hiddenLayers} onToggle={toggleLayer} />
             )}
-            <Tabs defaultValue="map">
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList>
                 <TabsTrigger value="map">Map</TabsTrigger>
                 <TabsTrigger value="list">List</TabsTrigger>
                 <TabsTrigger value="validation">Validation</TabsTrigger>
               </TabsList>
-              <TabsContent value="map">
+              <TabsContent value="map" className="flex flex-col gap-2">
+                {isValidating && (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                    <label htmlFor="highlight-issues" className="flex items-center gap-2">
+                      <Checkbox
+                        id="highlight-issues"
+                        checked={highlightIssues}
+                        onCheckedChange={(checked) => setHighlightIssues(checked === true)}
+                      />
+                      Highlight validation issues
+                    </label>
+                    {showIssuesOnMap && (
+                      <>
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
+                          <span
+                            className="size-2.5 rounded-full"
+                            style={{ backgroundColor: ISSUE_COLORS.error }}
+                          />
+                          {plural(issueCounts.error, "feature")} with errors
+                        </span>
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
+                          <span
+                            className="size-2.5 rounded-full"
+                            style={{ backgroundColor: ISSUE_COLORS.warning }}
+                          />
+                          {issueCounts.warning} with warnings only
+                        </span>
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
+                          <span
+                            className="size-2.5 rounded-full"
+                            style={{ backgroundColor: ISSUE_COLORS.ok }}
+                          />
+                          no issues
+                        </span>
+                      </>
+                    )}
+                  </div>
+                )}
                 <div className="h-125 overflow-hidden rounded-lg border">
                   <ClientOnly
                     fallback={
@@ -625,7 +841,14 @@ function Home() {
                       </div>
                     }
                   >
-                    <GeoJsonMap featureCollection={visibleFeatureCollection} version={mapVersion} />
+                    <GeoJsonMap
+                      featureCollection={visibleFeatureCollection}
+                      version={mapVersion}
+                      fitKey={mapFitKey}
+                      issueSeverity={showIssuesOnMap ? issueSeverity : null}
+                      focusFeature={focusFeature}
+                      onFocusHandled={clearFocusFeature}
+                    />
                   </ClientOnly>
                 </div>
               </TabsContent>
@@ -672,8 +895,9 @@ function Home() {
               </TabsContent>
               <TabsContent value="validation">
                 <SchemaValidationPanel
-                  featureCollection={result.featureCollection}
                   layers={layers}
+                  featuresByLayer={featuresByLayer}
+                  validationByLayer={validationByLayer}
                   layerSchemaIds={layerSchemaIds}
                   onLayerSchemaChange={setLayerSchema}
                   layerDuplicateKeys={layerDuplicateKeys}
@@ -681,6 +905,8 @@ function Home() {
                     setLayerDuplicateKeys((prev) => ({ ...prev, [layer]: key }))
                   }
                   onDeleteFeature={deleteFeature}
+                  onSelectFeatures={selectFeatures}
+                  onShowOnMap={showOnMap}
                   onEditFeature={openEditDialog}
                   onApplyRename={applyPropertyRename}
                 />

@@ -20,7 +20,8 @@ What GIS Converter does today. For things we might build next, see [IDEAS.md](./
 ## Viewing
 
 - **Map**: an OpenStreetMap preview with features colored by layer. Click a feature to inspect
-  its properties.
+  its properties. The map zooms to fit only when files are converted or layers are
+  shown/hidden, so it stays put while you edit.
 - **Layer legend**: show or hide layers (one per source file, or per DXF layer).
 - **List**: a table of all features and their properties.
 - **Search & filters**: free-text search across all values, plus "property contains value"
@@ -39,6 +40,10 @@ What GIS Converter does today. For things we might build next, see [IDEAS.md](./
 - **Saved presets**: Find & replace patterns and scripts can be saved by name in the browser.
 - **Ask Claude**: describe a cleanup in plain words and Claude fills in the pattern or script
   for you to review. This needs `ANTHROPIC_API_KEY` on the server.
+- **Undo/redo**: every change (edits, bulk edits, deletes, property renames) can be undone
+  and redone with the Undo/Redo buttons in the preview header, or Ctrl+Z and Ctrl+Shift+Z
+  (Ctrl+Y). After a delete or bulk change, a toast offers an "Undo" button. Up to 50 steps
+  are kept, and the history resets when you convert new files.
 - **Searchable dropdowns**: every list has a search box and scrolls.
 
 ## Validation
@@ -48,7 +53,14 @@ What GIS Converter does today. For things we might build next, see [IDEAS.md](./
   allowed list, format problems and conditional rules. Unknown properties show as warnings.
 - **Duplicate check**: pick a property per layer (for example `equipment`) to flag features
   that share a value. This works with or without a schema.
-- **Fix or delete** each feature with issues straight from the list.
+- **Fix, delete or show on map** for each feature with issues, straight from the list. "Show
+  on map" switches to the Map tab, zooms to the feature and opens its popup.
+- **Filter and select issues**: filter the list to errors only or one kind of issue (missing
+  required, wrong type, duplicate, …), then "Select N" selects those features. A toast offers
+  "Edit selected", which opens bulk edit.
+- **Issues on the map**: while validating, features with errors are red, features with only
+  warnings are amber, and the rest are grey. Turn off "Highlight validation issues" to go back
+  to layer colors.
 - **Match property names**: rename source properties to the schema's names. Suggestions come
   from schema aliases, names and fuzzy matching. The dialog has search, "set all to Don't
   rename / Remove", reviewed checkboxes, and "save progress" so you can come back later.

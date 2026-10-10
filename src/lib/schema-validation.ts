@@ -200,6 +200,25 @@ export function mergeValidationResults(
     .map(([featureIndex, issues]) => ({ featureIndex, issues }));
 }
 
+// Everything checked for one layer: the schema (if any) plus the duplicate
+// check (if a property is picked). Feature indexes refer to `features`.
+export function validateLayer(
+  features: GeoJSON.Feature[],
+  schema: GisSchema | undefined,
+  duplicateKey: string | null,
+): FeatureValidationResult[] {
+  return mergeValidationResults(
+    schema ? validateFeatureCollection({ type: "FeatureCollection", features }, schema) : [],
+    duplicateKey ? findDuplicates(features, duplicateKey) : [],
+  );
+}
+
+export type IssueSeverity = ValidationIssue["severity"];
+
+export function worstSeverity(issues: ValidationIssue[]): IssueSeverity {
+  return issues.some((issue) => issue.severity === "error") ? "error" : "warning";
+}
+
 export function summarizeValidation(
   totalFeatures: number,
   results: FeatureValidationResult[],

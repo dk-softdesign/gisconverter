@@ -21,10 +21,6 @@ target-system schema, then hand it over. These ideas tighten that loop.
   `default`" action.
 - **Fix types in bulk**: convert `"42"` to `42` (or the reverse) for every property whose
   schema type disagrees with the data.
-- **Select features with issues**: a button in Validation that selects all features with
-  errors (or with a given issue kind), ready for bulk edit or delete.
-- **Issues on the map**: color features with errors red. Clicking an issue zooms the map to
-  that feature.
 - **Validation report**: export the issue list as CSV/Excel to send to whoever supplied the
   data.
 - **Reusable mapping templates**: save a Match property names result as a named template per
@@ -35,10 +31,9 @@ target-system schema, then hand it over. These ideas tighten that loop.
 
 ## Safety
 
-- **Undo/redo** for every change (single edit, bulk edit, delete, rename). This matters more
-  now that features can be deleted with one click from Validation.
-- **Change log**: a running list of what was done in the session ("removed 14 features where
-  equipment is empty", …) that can be exported alongside the result.
+- **Change log**: a running list of what was done in the session ("Removed 14 features", …)
+  that can be exported alongside the result. The undo history already labels every step, so
+  this is mostly a matter of showing and exporting it.
 
 ## More formats (in and out)
 
@@ -89,10 +84,7 @@ Agreed order (Oct 2026). Cleaned data is imported into the target system as GeoJ
 files come both from recurring suppliers and one-off sources, so validation and fixing speed
 matter more than new export formats.
 
-1. **Undo/redo**, including an "Undo" toast right after a delete from Validation.
-2. **Issues → selection & map**: select features with issues, red issue features on the map,
-   click an issue to zoom.
-3. **Schema-driven fixes**: `x-unique`, enum value mapping, fill defaults, fix types.
+1. **Schema-driven fixes**: `x-unique`, enum value mapping, fill defaults, fix types.
 
 Later: reusable mapping templates and saved sessions (for recurring suppliers), then split
 export and validation report.
