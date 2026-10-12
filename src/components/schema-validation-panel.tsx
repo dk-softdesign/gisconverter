@@ -17,6 +17,7 @@ import { getSchemaEntry, schemaRegistry } from "#/lib/gis-schemas";
 import {
   INTERNAL_PROPERTY_KEYS,
   summarizeValidation,
+  GEOMETRY_DUPLICATE_KEY,
   type FeatureValidationResult,
   type ValidationIssue,
   type ValidationIssueKind,
@@ -256,9 +257,10 @@ function LayerValidationSection({
             }
             options={[
               { value: NO_DUPLICATE_KEY, label: "No duplicate check" },
+              { value: GEOMETRY_DUPLICATE_KEY, label: "Geometry", keywords: ["geometry", "geom"] },
               ...propertyKeys.map((key) => ({
                 value: key,
-                label: `Duplicates in ${key}`,
+                label: key,
                 keywords: [key],
               })),
             ]}
@@ -302,7 +304,7 @@ function LayerValidationSection({
             {duplicateKey && (
               <span className="text-muted-foreground">
                 {duplicateFeatureCount} feature{duplicateFeatureCount === 1 ? "" : "s"} share a{" "}
-                {duplicateKey} value
+                {duplicateKey === GEOMETRY_DUPLICATE_KEY ? "geometry" : `${duplicateKey} value`}
               </span>
             )}
             {schemaEntry && (

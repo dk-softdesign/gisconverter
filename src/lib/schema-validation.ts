@@ -142,16 +142,44 @@ export function validateFeatureCollection(
 
 const DUPLICATE_PEERS_SHOWN = 5;
 
+// Sentinel duplicate key meaning "compare geometries" rather than a property.
+export const GEOMETRY_DUPLICATE_KEY = "__geometry__";
+
+// Coordinates are WGS 84 degrees; 7 decimals is roughly 1 cm, enough to absorb
+// reprojection/float noise while keeping genuinely different vertices apart.
+const GEOMETRY_DUPLICATE_DECIMALS = 7;
+const GEOMETRY_DUPLICATE_SCALE = 10 ** GEOMETRY_DUPLICATE_DECIMALS;
+
+// Geometries are compared by type and coordinates rounded to
+// GEOMETRY_DUPLICATE_DECIMALS; features without a geometry are skipped, like
+// empty property values.
+function geometryText(geometry: GeoJSON.Geometry | null): string {
+  if (!geometry) return "";
+  return JSON.stringify(
+    geometry.type === "GeometryCollection"
+      ? { type: geometry.type, geometries: geometry.geometries.map(geometryText) }
+      : { type: geometry.type, coordinates: geometry.coordinates },
+    (_, value) =>
+      typeof value === "number"
+        ? Math.round(value * GEOMETRY_DUPLICATE_SCALE) / GEOMETRY_DUPLICATE_SCALE
+        : value,
+  );
+}
+
 // Flags every feature whose `key` value is shared with another feature. Values
 // are compared as trimmed strings (so 42 and "42" collide); empty values are
-// skipped — a missing value is a "required" problem, not a duplicate.
+// skipped — a missing value is a "required" problem, not a duplicate. With
+// GEOMETRY_DUPLICATE_KEY, identical geometries are flagged instead.
 export function findDuplicates(
   features: GeoJSON.Feature[],
   key: string,
 ): FeatureValidationResult[] {
+  const isGeometry = key === GEOMETRY_DUPLICATE_KEY;
   const indexesByValue = new Map<string, number[]>();
   features.forEach((feature, index) => {
-    const text = propertyValueToInputString(feature.properties?.[key]).trim();
+    const text = isGeometry
+      ? geometryText(feature.geometry)
+      : propertyValueToInputString(feature.properties?.[key]).trim();
     if (!text) return;
     const indexes = indexesByValue.get(text);
     if (indexes) indexes.push(index);
@@ -173,8 +201,10 @@ export function findDuplicates(
         issues: [
           {
             kind: "duplicate",
-            propertyKey: key,
-            message: `"${key}" value ${JSON.stringify(value)} is also used by feature ${shown}${more}.`,
+            propertyKey: isGeometry ? "geometry" : key,
+            message: isGeometry
+              ? `Geometry matches feature ${shown}${more} (within ~1 cm).`
+              : `"${key}" value ${JSON.stringify(value)} is also used by feature ${shown}${more}.`,
             severity: "error",
           },
         ],
