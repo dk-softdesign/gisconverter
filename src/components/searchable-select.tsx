@@ -1,4 +1,4 @@
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "#/components/ui/button";
@@ -38,6 +38,8 @@ interface SearchableSelectProps {
   // Offer whatever is typed in the search box as a value of its own, for
   // fields where a new name (e.g. a new property key) is legitimate.
   allowCustom?: boolean;
+  // Text for the "use what was typed" row, e.g. `Add new property "x"`.
+  customItemLabel?: (value: string) => string;
   disabled?: boolean;
   id?: string;
   className?: string;
@@ -55,6 +57,7 @@ export function SearchableSelect({
   searchPlaceholder = "Search…",
   emptyText = "No match found.",
   allowCustom = false,
+  customItemLabel = (custom) => `Use "${custom}"`,
   disabled,
   id,
   className,
@@ -80,7 +83,11 @@ export function SearchableSelect({
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setSearch("");
+        if (next) return;
+        // Clicking away after typing a new name keeps it, rather than
+        // silently dropping what was typed.
+        if (showCustom) onValueChange(customValue);
+        setSearch("");
       }}
     >
       <PopoverTrigger asChild>
@@ -107,14 +114,34 @@ export function SearchableSelect({
           scrollIntoView on each and fights the user's own wheel scroll.
         */}
         <Command disablePointerSelection>
-          <CommandInput placeholder={searchPlaceholder} value={search} onValueChange={setSearch} />
+          <div className="relative">
+            <CommandInput
+              placeholder={searchPlaceholder}
+              value={search}
+              onValueChange={setSearch}
+              className={showCustom ? "pr-8" : undefined}
+            />
+            {showCustom && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute top-1/2 right-1 size-7 -translate-y-1/2"
+                aria-label={customItemLabel(customValue)}
+                title={customItemLabel(customValue)}
+                onClick={() => select(customValue)}
+              >
+                <Plus />
+              </Button>
+            )}
+          </div>
           <CommandList>
             {!showCustom && <CommandEmpty>{emptyText}</CommandEmpty>}
             {showCustom && (
-              <CommandGroup>
+              <CommandGroup forceMount>
                 <CommandItem forceMount value={customValue} onSelect={() => select(customValue)}>
-                  <Check className="size-4 opacity-0" />
-                  Use &quot;{customValue}&quot;
+                  <Plus className="size-4" />
+                  <span className="truncate">{customItemLabel(customValue)}</span>
                 </CommandItem>
               </CommandGroup>
             )}

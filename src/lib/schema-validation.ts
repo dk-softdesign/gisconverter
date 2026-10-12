@@ -166,14 +166,19 @@ function geometryText(geometry: GeoJSON.Geometry | null): string {
   );
 }
 
-// Flags every feature whose `key` value is shared with another feature. Values
-// are compared as trimmed strings (so 42 and "42" collide); empty values are
-// skipped — a missing value is a "required" problem, not a duplicate. With
-// GEOMETRY_DUPLICATE_KEY, identical geometries are flagged instead.
-export function findDuplicates(
-  features: GeoJSON.Feature[],
-  key: string,
-): FeatureValidationResult[] {
+export interface DuplicateGroup {
+  // The shared value as compared (the trimmed property text, or the rounded
+  // geometry for GEOMETRY_DUPLICATE_KEY).
+  value: string;
+  // Feature indexes into the checked list, in feature order; always 2+.
+  indexes: number[];
+}
+
+// Groups features sharing the same `key` value. Values are compared as trimmed
+// strings (so 42 and "42" collide); empty values are skipped — a missing value
+// is a "required" problem, not a duplicate. With GEOMETRY_DUPLICATE_KEY,
+// geometries are compared instead.
+export function findDuplicateGroups(features: GeoJSON.Feature[], key: string): DuplicateGroup[] {
   const isGeometry = key === GEOMETRY_DUPLICATE_KEY;
   const indexesByValue = new Map<string, number[]>();
   features.forEach((feature, index) => {
@@ -185,10 +190,19 @@ export function findDuplicates(
     if (indexes) indexes.push(index);
     else indexesByValue.set(text, [index]);
   });
+  return [...indexesByValue]
+    .filter(([, indexes]) => indexes.length > 1)
+    .map(([value, indexes]) => ({ value, indexes }));
+}
 
+// Flags every feature that is part of a duplicate group (see findDuplicateGroups).
+export function findDuplicates(
+  features: GeoJSON.Feature[],
+  key: string,
+): FeatureValidationResult[] {
+  const isGeometry = key === GEOMETRY_DUPLICATE_KEY;
   const results: FeatureValidationResult[] = [];
-  for (const [value, indexes] of indexesByValue) {
-    if (indexes.length < 2) continue;
+  for (const { value, indexes } of findDuplicateGroups(features, key)) {
     for (const featureIndex of indexes) {
       const peers = indexes.filter((i) => i !== featureIndex).map((i) => `#${i + 1}`);
       const shown = peers.slice(0, DUPLICATE_PEERS_SHOWN).join(", ");

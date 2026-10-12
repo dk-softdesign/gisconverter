@@ -37,6 +37,15 @@ interface BulkEditDialogProps {
 
 type Mode = "set" | "replace" | "script" | "remove";
 
+// What the "Set value" tab writes: one fixed value for every feature, or a
+// number that counts up per feature.
+type SetValueType = "fixed" | "sequence";
+
+const SET_VALUE_TYPES: { value: SetValueType; label: string }[] = [
+  { value: "fixed", label: "Value" },
+  { value: "sequence", label: "Sequence number" },
+];
+
 type RemoveCondition =
   | "empty"
   | "not-empty"
@@ -192,6 +201,10 @@ export function BulkEditDialog({
   const [setKey, setSetKey] = useState("");
   const [setValue, setSetValue] = useState("");
 
+  const [setValueType, setSetValueType] = useState<SetValueType>("fixed");
+  const [sequenceStart, setSequenceStart] = useState("1");
+  const [sequenceStep, setSequenceStep] = useState("1");
+
   const [replaceScope, setReplaceScope] = useState(ALL_KEYS_SCOPE);
   const [pattern, setPattern] = useState("");
   const [replacement, setReplacement] = useState("");
@@ -221,10 +234,25 @@ export function BulkEditDialog({
     if (mode === "set") {
       const key = setKey.trim();
       if (!key) return { rows: [], scriptError: null };
-      const value = coercePropertyValue(setValue);
-      const rows = features.map((feature): PreviewRow => {
+      let valueAt: (index: number) => PropertyRecord[string];
+      if (setValueType === "sequence") {
+        const start = Number(sequenceStart);
+        const step = Number(sequenceStep);
+        if (sequenceStart.trim() === "" || !Number.isInteger(start)) {
+          return { rows: [], scriptError: "Start number must be a whole number." };
+        }
+        if (sequenceStep.trim() === "" || !Number.isInteger(step) || step === 0) {
+          return { rows: [], scriptError: "Step must be a whole number other than 0." };
+        }
+        // Numbers follow the order of the selected features.
+        valueAt = (index) => start + index * step;
+      } else {
+        const value = coercePropertyValue(setValue);
+        valueAt = () => value;
+      }
+      const rows = features.map((feature, index): PreviewRow => {
         const before = (feature.properties ?? {}) as PropertyRecord;
-        const after = applySetValue(before, key, value);
+        const after = applySetValue(before, key, valueAt(index));
         return {
           feature,
           before,
@@ -340,6 +368,9 @@ export function BulkEditDialog({
     features,
     setKey,
     setValue,
+    setValueType,
+    sequenceStart,
+    sequenceStep,
     replaceScope,
     pattern,
     replacement,
@@ -370,8 +401,9 @@ export function BulkEditDialog({
         <DialogHeader>
           <DialogTitle>Edit {features.length} selected features</DialogTitle>
           <DialogDescription>
-            Set a property, find &amp; replace across values, run a custom script, or remove
-            features by a property value — then review the preview before applying.
+            Set or add a property (fixed value or sequence number), find &amp; replace across
+            values, run a custom script, or remove features by a property value — then review the
+            preview before applying.
           </DialogDescription>
         </DialogHeader>
 
@@ -400,18 +432,61 @@ export function BulkEditDialog({
                 placeholder="Choose or type a property…"
                 searchPlaceholder="Search or type a new property…"
                 allowCustom
+                customItemLabel={newPropertyLabel}
               />
+              <NewPropertyHint propertyKey={setKey} existingKeys={existingKeys} />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium" htmlFor="bulk-edit-value">
-                Value
+              <label className="text-sm font-medium" htmlFor="bulk-edit-type">
+                Type
               </label>
-              <Input
-                id="bulk-edit-value"
-                value={setValue}
-                onChange={(e) => setSetValue(e.target.value)}
+              <SearchableSelect
+                id="bulk-edit-type"
+                value={setValueType}
+                onValueChange={(value) => setSetValueType(value as SetValueType)}
+                options={SET_VALUE_TYPES}
+                searchPlaceholder="Search types…"
               />
             </div>
+            {setValueType === "sequence" ? (
+              <div className="flex gap-3">
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <label className="text-sm font-medium" htmlFor="bulk-sequence-start">
+                    Start number
+                  </label>
+                  <Input
+                    id="bulk-sequence-start"
+                    type="number"
+                    step={1}
+                    value={sequenceStart}
+                    onChange={(e) => setSequenceStart(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <label className="text-sm font-medium" htmlFor="bulk-sequence-step">
+                    Step
+                  </label>
+                  <Input
+                    id="bulk-sequence-step"
+                    type="number"
+                    step={1}
+                    value={sequenceStep}
+                    onChange={(e) => setSequenceStep(e.target.value)}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium" htmlFor="bulk-edit-value">
+                  Value
+                </label>
+                <Input
+                  id="bulk-edit-value"
+                  value={setValue}
+                  onChange={(e) => setSetValue(e.target.value)}
+                />
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="replace" className="flex flex-col gap-3">
@@ -664,6 +739,27 @@ export function BulkEditDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function newPropertyLabel(key: string) {
+  return `Add new property "${key}"`;
+}
+
+// Confirms that a typed-in key doesn't exist yet and will be created.
+function NewPropertyHint({
+  propertyKey,
+  existingKeys,
+}: {
+  propertyKey: string;
+  existingKeys: string[];
+}) {
+  const key = propertyKey.trim();
+  if (!key || existingKeys.includes(key)) return null;
+  return (
+    <p className="text-xs text-muted-foreground">
+      New property — &quot;{key}&quot; will be added to every selected feature.
+    </p>
   );
 }
 

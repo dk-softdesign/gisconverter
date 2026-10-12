@@ -1,5 +1,14 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ListChecks, MapPin, Trash2, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  ListChecks,
+  Loader2,
+  MapPin,
+  Trash2,
+  XCircle,
+} from "lucide-react";
 
 import { Button } from "#/components/ui/button";
 import {
@@ -190,6 +199,29 @@ function LayerValidationSection({
   onOpenMapping,
 }: LayerValidationSectionProps) {
   const [issueFilter, setIssueFilter] = useState<IssueFilter>("all");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  // exceljs is only needed here, so it's loaded on first export.
+  async function exportDuplicates(key: string) {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const { duplicatesToExcel } = await import("#/lib/duplicates-to-excel");
+      const blob = await duplicatesToExcel(layer, features, key);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const keyName = key === GEOMETRY_DUPLICATE_KEY ? "geometry" : key;
+      link.download = `${layer}-duplicates-${keyName}.xlsx`.replace(/[\\/:*?"<>|]/g, "_");
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "Export failed.");
+    } finally {
+      setExporting(false);
+    }
+  }
   const schemaEntry = getSchemaEntry(schemaId);
 
   const propertyKeys = useMemo(
@@ -307,6 +339,19 @@ function LayerValidationSection({
                 {duplicateKey === GEOMETRY_DUPLICATE_KEY ? "geometry" : `${duplicateKey} value`}
               </span>
             )}
+            {duplicateKey && duplicateFeatureCount > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={exporting}
+                onClick={() => void exportDuplicates(duplicateKey)}
+              >
+                {exporting ? <Loader2 className="animate-spin" /> : <Download />}
+                Export duplicates (Excel)
+              </Button>
+            )}
+            {exportError && <span className="text-destructive">Export failed: {exportError}</span>}
             {schemaEntry && (
               <Button
                 type="button"
