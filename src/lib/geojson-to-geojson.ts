@@ -1,4 +1,5 @@
 import { isSupportedSourceCrs } from "#/lib/crs";
+import { NoGeometryError, propertiesOnlyFeature, propertiesOnlyWarning } from "#/lib/no-geometry";
 import { reprojectGeometry, ensureCrsDefsRegistered, WGS84 } from "#/lib/reproject";
 
 export interface GeoJsonConversionResult {
@@ -66,6 +67,7 @@ function looksLikeLonLat(features: GeoJSON.Feature[]): boolean {
 export function convertGeoJsonToGeoJson(
   text: string,
   fallbackSourceCrs: string,
+  allowNoGeometry = false,
 ): GeoJsonConversionResult {
   let root: unknown;
   try {
@@ -91,7 +93,7 @@ export function convertGeoJsonToGeoJson(
 
   const warnings: string[] = [];
   const features: GeoJSON.Feature[] = [];
-  let withoutGeometry = 0;
+  const withoutGeometry: GeoJSON.Feature[] = [];
   let invalid = 0;
   for (const candidate of candidates) {
     if (!isObject(candidate) || candidate.type !== "Feature") {
@@ -99,17 +101,35 @@ export function convertGeoJsonToGeoJson(
       continue;
     }
     if (!isGeometry(candidate.geometry)) {
-      if (candidate.geometry == null) withoutGeometry++;
-      else invalid++;
+      if (candidate.geometry == null) {
+        const properties = isObject(candidate.properties) ? candidate.properties : {};
+        const id =
+          typeof candidate.id === "string" || typeof candidate.id === "number"
+            ? candidate.id
+            : undefined;
+        withoutGeometry.push(propertiesOnlyFeature(properties, id));
+      } else invalid++;
       continue;
     }
     // Strip any feature-level bbox: it would be stale after reprojection.
     const { bbox: _bbox, ...feature } = candidate as unknown as GeoJSON.Feature;
     features.push({ ...feature, properties: feature.properties ?? {} });
   }
-  if (withoutGeometry > 0) {
+  if (features.length === 0 && withoutGeometry.length > 0) {
+    const reason = "None of the features in this file have a geometry.";
+    if (!allowNoGeometry) throw new NoGeometryError(reason, withoutGeometry.length);
+    warnings.push(propertiesOnlyWarning(withoutGeometry.length, "feature"));
+    if (invalid > 0) {
+      warnings.push(`Skipped ${invalid} invalid feature${invalid === 1 ? "" : "s"}.`);
+    }
+    return {
+      featureCollection: { type: "FeatureCollection", features: withoutGeometry },
+      warnings,
+    };
+  }
+  if (withoutGeometry.length > 0) {
     warnings.push(
-      `Skipped ${withoutGeometry} feature${withoutGeometry === 1 ? "" : "s"} without a geometry.`,
+      `Skipped ${withoutGeometry.length} feature${withoutGeometry.length === 1 ? "" : "s"} without a geometry.`,
     );
   }
   if (invalid > 0) {

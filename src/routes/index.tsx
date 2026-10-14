@@ -7,6 +7,14 @@ import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert";
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "#/components/ui/dialog";
+import {
   Card,
   CardAction,
   CardContent,
@@ -35,6 +43,7 @@ import { DEFAULT_SOURCE_CRS, SUPPORTED_SOURCE_CRS } from "#/lib/crs";
 import { groupNameOf, ISSUE_COLORS } from "#/lib/layer-colors";
 import type { PropertyRecord } from "#/lib/property-value";
 import { getSchemaEntry } from "#/lib/gis-schemas";
+import { NO_GEOMETRY_ERROR_CODE } from "#/lib/no-geometry";
 import {
   validateLayer,
   worstSeverity,
@@ -79,6 +88,20 @@ function stringifyPropertyValue(value: unknown): string {
   return String(value);
 }
 
+// A file the server converted fine except that it found no geometry in it;
+// the user is asked whether to import its records with properties only.
+interface NoGeometryFile {
+  file: File;
+  index: number;
+  message: string;
+  recordCount: number;
+}
+
+type ConvertOutcome =
+  | { file: File; data: ConvertResponse }
+  | { file: File; error: string }
+  | { file: File; noGeometry: NoGeometryFile };
+
 interface FileStatus {
   file: File;
   status: "pending" | "done" | "error";
@@ -92,6 +115,11 @@ function Home() {
   const [crsDetection, setCrsDetection] = useState<CrsDetection | null>(null);
   const detectionRequestId = useRef(0);
   const [status, setStatus] = useState<"idle" | "converting" | "error">("idle");
+  // While set, the no-geometry prompt is open; `resolve` receives the answer.
+  const [noGeometryPrompt, setNoGeometryPrompt] = useState<{
+    files: NoGeometryFile[];
+    resolve: (importAnyway: boolean) => void;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Every change to the converted data goes through this history, so it can
   // be undone. `result` is the current version.
@@ -155,6 +183,11 @@ function Home() {
     }
     return byLayer;
   }, [layers, featuresByLayer, layerSchemaIds, layerDuplicateKeys]);
+
+  const withoutGeometryCount = useMemo(
+    () => visibleFeatureCollection.features.filter((f) => !f.geometry).length,
+    [visibleFeatureCollection],
+  );
 
   const isValidating = Object.values(validationByLayer).some((results) => results !== null);
 
@@ -463,32 +496,64 @@ function Home() {
 
     const isBatch = files.length > 1;
 
-    const outcomes = await Promise.all(
-      files.map(async (file, index) => {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("sourceCrs", sourceCrs);
+    const convertFile = async (
+      file: File,
+      index: number,
+      allowNoGeometry = false,
+    ): Promise<ConvertOutcome> => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("sourceCrs", sourceCrs);
+      if (allowNoGeometry) formData.append("allowNoGeometry", "true");
 
-        try {
-          const response = await fetch("/api/convert", { method: "POST", body: formData });
-          const data: unknown = await response.json();
-          if (!response.ok) {
-            const message = (data as { error?: string }).error ?? "Failed to convert this file.";
-            throw new Error(message);
+      const setFileStatus = (update: Omit<FileStatus, "file">) =>
+        setFileStatuses((prev) => prev.map((s, i) => (i === index ? { ...s, ...update } : s)));
+
+      try {
+        const response = await fetch("/api/convert", { method: "POST", body: formData });
+        const data: unknown = await response.json();
+        if (!response.ok) {
+          const failure = data as { error?: string; code?: string; recordCount?: number };
+          const message = failure.error ?? "Failed to convert this file.";
+          if (failure.code === NO_GEOMETRY_ERROR_CODE) {
+            setFileStatus({ status: "error", error: message });
+            return {
+              file,
+              noGeometry: { file, index, message, recordCount: failure.recordCount ?? 0 },
+            };
+          }
+          throw new Error(message);
+        }
+        setFileStatus({ status: "done" });
+        return { file, data: data as ConvertResponse };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to convert this file.";
+        setFileStatus({ status: "error", error: message });
+        return { file, error: message };
+      }
+    };
+
+    const outcomes = await Promise.all(files.map((file, index) => convertFile(file, index)));
+
+    const noGeometryFiles = outcomes.flatMap((o) => ("noGeometry" in o ? [o.noGeometry] : []));
+    if (noGeometryFiles.length > 0) {
+      const importAnyway = await new Promise<boolean>((resolve) =>
+        setNoGeometryPrompt({ files: noGeometryFiles, resolve }),
+      );
+      setNoGeometryPrompt(null);
+      await Promise.all(
+        noGeometryFiles.map(async ({ file, index, message }) => {
+          if (!importAnyway) {
+            outcomes[index] = { file, error: `${message} Not imported.` };
+            return;
           }
           setFileStatuses((prev) =>
-            prev.map((s, i) => (i === index ? { ...s, status: "done" } : s)),
+            prev.map((s, i) => (i === index ? { ...s, status: "pending", error: undefined } : s)),
           );
-          return { file, data: data as ConvertResponse };
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "Failed to convert this file.";
-          setFileStatuses((prev) =>
-            prev.map((s, i) => (i === index ? { ...s, status: "error", error: message } : s)),
-          );
-          return { file, error: message };
-        }
-      }),
-    );
+          outcomes[index] = await convertFile(file, index, true);
+        }),
+      );
+    }
 
     const features: GeoJSON.Feature[] = [];
     const warnings: string[] = [];
@@ -498,6 +563,8 @@ function Home() {
         warnings.push(`${outcome.file.name}: ${outcome.error}`);
         continue;
       }
+      // Every no-geometry outcome was resolved above; this only narrows the type.
+      if ("noGeometry" in outcome) continue;
       for (const feature of outcome.data.featureCollection.features) {
         features.push(
           isBatch && !feature.properties?.source
@@ -851,6 +918,13 @@ function Home() {
                     />
                   </ClientOnly>
                 </div>
+                {withoutGeometryCount > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    {withoutGeometryCount === visibleFeatureCollection.features.length
+                      ? "None of the features have a geometry, so there is nothing to show on the map — see the List tab."
+                      : `${plural(withoutGeometryCount, "feature")} without a geometry ${withoutGeometryCount === 1 ? "isn't" : "aren't"} shown on the map — see the List tab.`}
+                  </p>
+                )}
               </TabsContent>
               <TabsContent value="list" className="flex flex-col gap-2">
                 <FeatureFilterBar
@@ -928,6 +1002,46 @@ function Home() {
           setEditingFeature(null);
         }}
       />
+      <Dialog
+        open={noGeometryPrompt !== null}
+        onOpenChange={(open) => {
+          if (!open) noGeometryPrompt?.resolve(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>No geometry identified</DialogTitle>
+            <DialogDescription>
+              {noGeometryPrompt?.files.length === 1
+                ? "No geometry could be identified in this file."
+                : `No geometry could be identified in ${noGeometryPrompt?.files.length ?? 0} files.`}{" "}
+              Import anyway with only the properties available? The records won&apos;t appear on the
+              map, but can be listed, edited, validated and exported.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="flex flex-col gap-2 text-sm">
+            {noGeometryPrompt?.files.map((f) => (
+              <li key={f.index}>
+                <span className="font-medium">{f.file.name}</span>
+                <span className="text-muted-foreground"> — {plural(f.recordCount, "record")}</span>
+                <p className="text-muted-foreground">{f.message}</p>
+              </li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => noGeometryPrompt?.resolve(false)}
+            >
+              Skip
+            </Button>
+            <Button type="button" onClick={() => noGeometryPrompt?.resolve(true)}>
+              Import properties only
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <BulkEditDialog
         key={`bulk-edit-${bulkEditSessionId}`}
         open={bulkEditOpen}

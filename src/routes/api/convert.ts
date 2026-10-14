@@ -6,6 +6,7 @@ import { convertDxfToGeoJson, type DxfConversionResult } from "#/lib/dxf-to-geoj
 import { convertExcelToGeoJson, type ExcelConversionResult } from "#/lib/excel-to-geojson";
 import { convertGeoJsonToGeoJson, type GeoJsonConversionResult } from "#/lib/geojson-to-geojson";
 import { convertKmlToGeoJson, type KmlConversionResult } from "#/lib/kml-to-geojson";
+import { NO_GEOMETRY_ERROR_CODE, NoGeometryError } from "#/lib/no-geometry";
 import {
   convertShapefileToGeoJson,
   type ShapefileConversionResult,
@@ -65,24 +66,42 @@ export const Route = createFileRoute("/api/convert")({
           );
         }
 
+        // Set when the user has agreed to import a source with no geometry
+        // as properties-only features (see NoGeometryError).
+        const allowNoGeometry = formData.get("allowNoGeometry") === "true";
+
         try {
           if (isDxf) {
             const text = await file.text();
             return jsonResponse(convertDxfToGeoJson(text, crs));
           }
           if (isGeoJson) {
-            return jsonResponse(convertGeoJsonToGeoJson(await file.text(), crs));
+            return jsonResponse(convertGeoJsonToGeoJson(await file.text(), crs, allowNoGeometry));
           }
           if (isKml) {
-            return jsonResponse(await convertKmlToGeoJson(await file.arrayBuffer(), file.name));
+            return jsonResponse(
+              await convertKmlToGeoJson(await file.arrayBuffer(), file.name, allowNoGeometry),
+            );
           }
           if (isZip) {
             const buffer = await file.arrayBuffer();
-            return jsonResponse(await convertShapefileToGeoJson(buffer, crs, file.name));
+            return jsonResponse(
+              await convertShapefileToGeoJson(buffer, crs, file.name, allowNoGeometry),
+            );
           }
           const buffer = await file.arrayBuffer();
-          return jsonResponse(await convertExcelToGeoJson(buffer, crs));
+          return jsonResponse(await convertExcelToGeoJson(buffer, crs, allowNoGeometry));
         } catch (error) {
+          if (error instanceof NoGeometryError) {
+            return Response.json(
+              {
+                error: error.message,
+                code: NO_GEOMETRY_ERROR_CODE,
+                recordCount: error.recordCount,
+              },
+              { status: 422 },
+            );
+          }
           return Response.json(
             { error: error instanceof Error ? error.message : "Failed to convert this file." },
             { status: 422 },

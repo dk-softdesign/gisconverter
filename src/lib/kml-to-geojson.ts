@@ -2,6 +2,8 @@ import { kmlWithFolders, type Folder, type Root } from "@tmcw/togeojson";
 import { DOMParser } from "@xmldom/xmldom";
 import JSZip from "jszip";
 
+import { NoGeometryError, propertiesOnlyFeature, propertiesOnlyWarning } from "#/lib/no-geometry";
+
 export interface KmlConversionResult {
   featureCollection: GeoJSON.FeatureCollection;
   warnings: string[];
@@ -47,6 +49,7 @@ function parseKml(text: string): Root {
 export async function convertKmlToGeoJson(
   buffer: ArrayBuffer,
   uploadedFileName: string,
+  allowNoGeometry = false,
 ): Promise<KmlConversionResult> {
   const isKmz = uploadedFileName.toLowerCase().endsWith(".kmz");
   const text = isKmz ? await kmlFromKmz(buffer) : new TextDecoder().decode(buffer);
@@ -54,7 +57,7 @@ export async function convertKmlToGeoJson(
   const baseName = uploadedFileName.replace(/\.[^./]+$/, "");
 
   const features: GeoJSON.Feature[] = [];
-  let withoutGeometry = 0;
+  const withoutGeometry: GeoJSON.Feature[] = [];
   const visit = (children: Root["children"], path: string[]) => {
     for (const child of children) {
       if (child.type === "folder") {
@@ -63,12 +66,14 @@ export async function convertKmlToGeoJson(
         visit(folder.children, name ? [...path, name] : path);
         continue;
       }
-      if (!child.geometry) {
-        withoutGeometry++;
-        continue;
-      }
       const properties = child.properties ?? {};
       const layer = path.length > 0 ? path.join(" / ") : baseName;
+      if (!child.geometry) {
+        withoutGeometry.push(
+          propertiesOnlyFeature(properties.layer ? properties : { ...properties, layer }, child.id),
+        );
+        continue;
+      }
       features.push({
         type: "Feature",
         ...(child.id !== undefined && { id: child.id }),
@@ -80,9 +85,18 @@ export async function convertKmlToGeoJson(
   visit(root.children, []);
 
   const warnings: string[] = [];
-  if (withoutGeometry > 0) {
+  if (features.length === 0 && withoutGeometry.length > 0) {
+    const reason = "None of the placemarks in this file have a geometry.";
+    if (!allowNoGeometry) throw new NoGeometryError(reason, withoutGeometry.length);
+    warnings.push(propertiesOnlyWarning(withoutGeometry.length, "placemark"));
+    return {
+      featureCollection: { type: "FeatureCollection", features: withoutGeometry },
+      warnings,
+    };
+  }
+  if (withoutGeometry.length > 0) {
     warnings.push(
-      `Skipped ${withoutGeometry} placemark${withoutGeometry === 1 ? "" : "s"} without a geometry.`,
+      `Skipped ${withoutGeometry.length} placemark${withoutGeometry.length === 1 ? "" : "s"} without a geometry.`,
     );
   }
   if (features.length === 0) {

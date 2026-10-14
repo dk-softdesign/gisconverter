@@ -60,9 +60,12 @@ export function reprojectFeatureCollection(
   ensureCrsDefsRegistered();
   return {
     ...featureCollection,
-    features: featureCollection.features.map((feature) => ({
-      ...feature,
-      geometry: reprojectGeometry(feature.geometry, sourceCrs),
-    })),
+    // Properties-only features (and null shapes in a Shapefile) have no
+    // geometry to reproject.
+    features: featureCollection.features.map((feature) =>
+      feature.geometry
+        ? { ...feature, geometry: reprojectGeometry(feature.geometry, sourceCrs) }
+        : feature,
+    ),
   };
 }

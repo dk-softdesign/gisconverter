@@ -137,7 +137,7 @@ function bindInspectPopup(feature: GeoJSON.Feature, layer: Layer) {
 
   const subtitle = document.createElement("div");
   subtitle.className = "text-muted-foreground";
-  subtitle.textContent = feature.geometry.type;
+  subtitle.textContent = feature.geometry?.type ?? "";
   container.appendChild(subtitle);
 
   // Other properties (e.g. DXF block attributes like DIAMETER, MATERIAL)

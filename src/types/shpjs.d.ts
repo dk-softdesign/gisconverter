@@ -10,4 +10,9 @@ declare module "shpjs" {
     buffer: ArrayBuffer | ArrayBufferView,
     whiteList?: string[],
   ): Promise<ShpFeatureCollection | ShpFeatureCollection[]>;
+
+  export function parseDbf(
+    dbf: ArrayBuffer | ArrayBufferView,
+    cpg?: string,
+  ): Record<string, string | number | boolean | Date | null>[];
 }

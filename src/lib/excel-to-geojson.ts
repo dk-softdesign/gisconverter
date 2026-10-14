@@ -2,6 +2,8 @@ import ExcelJS from "exceljs";
 import { Geometry as WkxGeometry, type ParsedGeometry as WkxParsedGeometry } from "wkx";
 
 import { isSupportedSourceCrs } from "#/lib/crs";
+import { dateToPropertyValue } from "#/lib/property-value";
+import { NoGeometryError, propertiesOnlyFeature, propertiesOnlyWarning } from "#/lib/no-geometry";
 import { reprojectFeatureCollection } from "#/lib/reproject";
 
 export interface ExcelConversionResult {
@@ -25,7 +27,7 @@ const COORDINATE_COLUMN_PAIRS: [string, string][] = [
 
 function cellValue(value: ExcelJS.CellValue): string | number | boolean | null {
   if (value === null || value === undefined) return null;
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) return dateToPropertyValue(value, "utc");
   if (typeof value === "object") {
     if ("richText" in value) return value.richText.map((t) => t.text).join("");
     if ("result" in value) return cellValue(value.result ?? null);
@@ -79,6 +81,7 @@ function findHeaderName(headers: string[], target: string): string | undefined {
 export async function convertExcelToGeoJson(
   buffer: ArrayBuffer,
   fallbackSourceCrs: string,
+  allowNoGeometry = false,
 ): Promise<ExcelConversionResult> {
   const workbook = new ExcelJS.Workbook();
   try {
@@ -119,13 +122,6 @@ export async function convertExcelToGeoJson(
     }
   }
 
-  if (geomColumnName === undefined && !coordinateColumns) {
-    throw new Error(
-      `No geometry column found. Expected a "geom" column (WKT or WKB), or a pair of coordinate ` +
-        `columns (e.g. x/y, lon/lat, easting/northing). Columns found: ${headerNames.join(", ")}.`,
-    );
-  }
-
   // These columns are fully represented by the feature's geometry, so don't
   // duplicate them into properties too.
   const geometryColumnNames = new Set<string>();
@@ -137,6 +133,8 @@ export async function convertExcelToGeoJson(
 
   const warnings: string[] = [];
   const features: GeoJSON.Feature[] = [];
+  // Every non-empty row, kept in case no geometry is found for any of them.
+  const rows: Record<string, string | number | boolean | null>[] = [];
   let unparseableGeomCount = 0;
   let missingCoordinatesCount = 0;
   let detectedSrid: number | undefined;
@@ -149,6 +147,7 @@ export async function convertExcelToGeoJson(
       rowValues[name] = cellValue(row.getCell(colNumber).value);
     }
     if (Object.values(rowValues).every((value) => value === null || value === "")) return;
+    rows.push(rowValues);
 
     let geometry: GeoJSON.Geometry | null = null;
 
@@ -180,6 +179,22 @@ export async function convertExcelToGeoJson(
 
     features.push({ type: "Feature", properties, geometry });
   });
+
+  if (features.length === 0 && rows.length > 0) {
+    const reason =
+      geomColumnName === undefined && !coordinateColumns
+        ? `No geometry column found. Expected a "geom" column (WKT or WKB), or a pair of ` +
+          `coordinate columns (e.g. x/y, lon/lat, easting/northing). Columns found: ${headerNames.join(", ")}.`
+        : "None of the rows have a usable geometry.";
+    if (!allowNoGeometry) throw new NoGeometryError(reason, rows.length);
+    return {
+      featureCollection: {
+        type: "FeatureCollection",
+        features: rows.map((row) => propertiesOnlyFeature(row)),
+      },
+      warnings: [reason, propertiesOnlyWarning(rows.length, "row")],
+    };
+  }
 
   if (unparseableGeomCount > 0) {
     warnings.push(`Skipped ${unparseableGeomCount} row(s) with an unparseable geom value.`);

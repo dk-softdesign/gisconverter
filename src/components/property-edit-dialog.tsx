@@ -79,7 +79,13 @@ export function PropertyEditDialog({
       <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Edit properties</DialogTitle>
-          <DialogDescription>{feature ? `${feature.geometry.type} feature` : ""}</DialogDescription>
+          <DialogDescription>
+            {feature
+              ? feature.geometry
+                ? `${feature.geometry.type} feature`
+                : "Feature without geometry"
+              : ""}
+          </DialogDescription>
         </DialogHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
           {entries.map((entry) => (
