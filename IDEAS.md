@@ -37,7 +37,7 @@ target-system schema, then hand it over. These ideas tighten that loop.
 
 ## More formats (in and out)
 
-- Inputs: GPX, GML, GeoPackage (`.gpkg`), CSV with a WKT column.
+- Inputs: GPX, GML, CSV with a WKT column.
 - Outputs beyond GeoJSON: Shapefile (zip), KML, CSV/Excel (flattened properties plus WKT or
   lat/lon), GeoPackage. Conversion currently only goes into GeoJSON.
 - One-click reverse conversion: WGS84 GeoJSON → EPSG:25832 DXF/Shapefile for round-tripping
@@ -45,19 +45,21 @@ target-system schema, then hand it over. These ideas tighten that loop.
 
 ## Map & visualization
 
-- Base map switcher (OSM / satellite / Danish Dataforsyningen WMTS).
+- More base maps: satellite / Danish Dataforsyningen WMTS. (OSM, light, dark and none are
+  already in Settings.)
 - Highlight selected features on the map, and select features on the map (click or lasso).
 - Measurement tools (distance/area) and a scale bar.
 - Draw/edit geometry on the map (add a point, move a vertex) instead of only editing
   attributes.
 - Color-by-attribute / choropleth styling instead of only color-by-layer.
 - Cluster markers for point-heavy exports.
-- Dark-mode-aware map tiles. The app has a theme toggle, but the map always uses light OSM
-  tiles.
+- Map background that follows the theme automatically. Today a dark background can be picked
+  in Settings, but it doesn't switch with the light/dark toggle.
 
 ## Data table / editing
 
-- Sortable, resizable columns in the feature list.
+- Sortable, resizable columns in the feature list. (Columns can already be renamed or
+  deleted from their headers.)
 - Inline cell editing in the table itself, not just the modal dialog.
 - CSV/Excel export of just the attribute table (no geometry) for non-GIS stakeholders.
 - Geometry validation/repair: flag invalid geometries (self-intersections, unclosed polygons,

@@ -3,7 +3,7 @@
 A dashboard for converting GIS file formats (Shapefile, KML, GPX, GML, ...) to GeoJSON.
 Built with TanStack Start (TypeScript, React, Node.js) as a single full-stack app.
 
-See [AGENTS.md](./AGENTS.md) for conventions and commands used by AI coding agents in this
+See [CLAUDE.md](./CLAUDE.md) for conventions and commands used by AI coding agents in this
 repo (also applies to humans).
 
 # Getting Started

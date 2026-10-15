@@ -4,33 +4,54 @@ What GIS Converter does today. For things we might build next, see [IDEAS.md](./
 
 ## Import & conversion
 
-- **Supported inputs**: DXF, Shapefile (`.zip`), Excel (`.xlsx`), GeoJSON (`.geojson`/`.json`)
-  and KML/KMZ. Max 25 MB per file.
+- **Supported inputs**: DXF, Shapefile (`.zip`), Excel (`.xlsx`), GeoJSON (`.geojson`/`.json`),
+  KML/KMZ and GeoPackage (`.gpkg`). Max 25 MB per file.
 - **Batch upload**: select or drag in several files or a whole folder. Each file is converted
   separately, shows its own status, and becomes its own layer in the result.
 - **Always WGS 84 output**: everything is reprojected to EPSG:4326 GeoJSON.
 - **Source coordinate system**: a curated list of the systems used in Danish data (UTM 32N/33N,
   DKTM1–4, ED50, …). It's only used when the file doesn't carry its own CRS (always for DXF,
-  and for Shapefiles without a `.prj`).
+  for Shapefiles without a `.prj`, and for GeoPackage layers with an undefined CRS). The
+  pre-selected system can be changed in Settings.
 - **CRS auto-detection**: for DXF files, the app checks which coordinate system puts the data
   inside Denmark and suggests it.
 - **Format details**: DXF block attributes (ATTRIB) become feature properties. Excel reads a
-  geometry column or coordinate columns.
+  geometry column or coordinate columns. GeoPackage: each feature table becomes a layer and is
+  reprojected from its own CRS (including ones outside the curated list, via the WKT stored in
+  the file); tables without geometry, raster tiles and binary columns are skipped with a
+  warning.
+- **Properties-only import**: when a file has records but no geometry, the app asks whether to
+  import them anyway. They show in the List but not on the map.
+
+## Layout
+
+- **App header** with the title, a light/dark toggle and the Settings button.
+- **Working layout after converting**: the upload form collapses into a left-hand side panel
+  (source files with status, Download GeoJSON, Change file, conversion warnings). The panel
+  can be hidden to give the preview the full width, and the choice is remembered.
+- **Preview fills the window height**, so the map and the list use all the space available.
+- **Change file** hides the preview and reopens the upload form; **Back to preview** returns
+  without losing the current data.
 
 ## Viewing
 
-- **Map**: an OpenStreetMap preview with features colored by layer. Click a feature to inspect
-  its properties. The map zooms to fit only when files are converted or layers are
-  shown/hidden, so it stays put while you edit.
+- **Map**: a preview with features colored by layer. Click a feature to inspect its
+  properties. The map zooms to fit only when files are converted or layers are shown/hidden,
+  so it stays put while you edit. The background (OpenStreetMap, light, dark or none) is set
+  in Settings.
 - **Layer legend**: show or hide layers (one per source file, or per DXF layer).
 - **List**: a table of all features and their properties.
 - **Search & filters**: free-text search across all values, plus "property contains value"
   filters that can be stacked.
-- **Dark mode** toggle.
+- **Theme**: light, dark, or follow the operating system.
 
 ## Editing
 
 - **Edit one feature**: add, change or remove properties in a dialog.
+- **Rename or delete properties from the List**: each column header has rename and delete
+  actions. Changes are staged (shown in a bar above the list) and only applied when you press
+  Apply. They apply to every feature in the visible layers, and a rename can't overwrite an
+  existing property.
 - **Bulk edit selected features**, always with a before/after preview:
   - **Set value**: set a property, new or existing, to one value.
   - **Find & replace**: a regular expression across one property or all of them.
@@ -61,14 +82,27 @@ What GIS Converter does today. For things we might build next, see [IDEAS.md](./
 - **Issues on the map**: while validating, features with errors are red, features with only
   warnings are amber, and the rest are grey. Turn off "Highlight validation issues" to go back
   to layer colors.
-- **Match property names**: rename source properties to the schema's names. Suggestions come
-  from schema aliases, names and fuzzy matching. The dialog has search, "set all to Don't
-  rename / Remove", reviewed checkboxes, and "save progress" so you can come back later.
+- **Match property names**: rename source properties to the schema's names, or type a custom
+  name. Suggestions come from schema aliases, names and fuzzy matching. The dialog has search,
+  "set all to Don't rename / Remove", reviewed checkboxes, "save progress" so you can come
+  back later, and a warning when two properties would end up with the same name.
 - **Adding a schema**: drop a new JSON file into `/schemas` and it appears in the picker.
 
 ## Export
 
-- **Download GeoJSON**: downloads the edited, merged result.
+- **Download GeoJSON**: downloads the edited, merged result. Coordinate precision (full, or
+  8 down to 5 decimals) and pretty-printed vs compact output are set in Settings.
+
+## Settings
+
+Opened from the gear in the header. Changes apply at once and are saved in the browser.
+
+- **Appearance**: theme (light / dark / system).
+- **Conversion**: default source coordinate system.
+- **Preview**: which tab opens after converting, map background, and whether validation issues
+  are highlighted on the map by default.
+- **Export**: coordinate precision and pretty-printing.
+- **Saved data**: clear saved Match property names progress, and reset all settings.
 
 ## Command-line helpers (`scripts/`)
 
