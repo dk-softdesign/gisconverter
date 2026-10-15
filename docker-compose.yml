@@ -13,15 +13,25 @@ services:
     # Without it the app still runs; only the "Ask Claude" helpers are disabled.
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    # Members and sessions (SQLite). Keep this volume — losing it means
+    # setting up the first admin again.
+    volumes:
+      - gisconverter-data:/app/data
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 5s
       start_period: 10s
       retries: 3
     deploy:
+      # Keep at 1: members/sessions live in SQLite on a node-local volume, and
+      # login throttling is in memory. If the swarm has several nodes, pin the
+      # service to one (placement constraint) so it always finds its volume.
       replicas: 1
       restart_policy:
         condition: on-failure
       update_config:
         order: start-first
+
+volumes:
+  gisconverter-data:

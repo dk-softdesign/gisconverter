@@ -10,13 +10,33 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as MembersRouteImport } from './routes/members'
+import { Route as SetupRouteImport } from './routes/setup'
 import { Route as ApiConvertRouteImport } from './routes/api/convert'
 import { Route as ApiDetectCrsRouteImport } from './routes/api/detect-crs'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiSuggestEditRouteImport } from './routes/api/suggest-edit'
+import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MembersRoute = MembersRouteImport.update({
+  id: '/members',
+  path: '/members',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupRoute = SetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiConvertRoute = ApiConvertRouteImport.update({
@@ -29,45 +49,102 @@ const ApiDetectCrsRoute = ApiDetectCrsRouteImport.update({
   path: '/api/detect-crs',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSuggestEditRoute = ApiSuggestEditRouteImport.update({
   id: '/api/suggest-edit',
   path: '/api/suggest-edit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InviteTokenRoute = InviteTokenRouteImport.update({
+  id: '/invite/$token',
+  path: '/invite/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/members': typeof MembersRoute
+  '/setup': typeof SetupRoute
   '/api/convert': typeof ApiConvertRoute
   '/api/detect-crs': typeof ApiDetectCrsRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/suggest-edit': typeof ApiSuggestEditRoute
+  '/invite/$token': typeof InviteTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/members': typeof MembersRoute
+  '/setup': typeof SetupRoute
   '/api/convert': typeof ApiConvertRoute
   '/api/detect-crs': typeof ApiDetectCrsRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/suggest-edit': typeof ApiSuggestEditRoute
+  '/invite/$token': typeof InviteTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/members': typeof MembersRoute
+  '/setup': typeof SetupRoute
   '/api/convert': typeof ApiConvertRoute
   '/api/detect-crs': typeof ApiDetectCrsRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/suggest-edit': typeof ApiSuggestEditRoute
+  '/invite/$token': typeof InviteTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/convert' | '/api/detect-crs' | '/api/suggest-edit'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/members'
+    | '/setup'
+    | '/api/convert'
+    | '/api/detect-crs'
+    | '/api/health'
+    | '/api/suggest-edit'
+    | '/invite/$token'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/convert' | '/api/detect-crs' | '/api/suggest-edit'
+  to:
+    | '/'
+    | '/login'
+    | '/members'
+    | '/setup'
+    | '/api/convert'
+    | '/api/detect-crs'
+    | '/api/health'
+    | '/api/suggest-edit'
+    | '/invite/$token'
   id:
-    '__root__' | '/' | '/api/convert' | '/api/detect-crs' | '/api/suggest-edit'
+    | '__root__'
+    | '/'
+    | '/login'
+    | '/members'
+    | '/setup'
+    | '/api/convert'
+    | '/api/detect-crs'
+    | '/api/health'
+    | '/api/suggest-edit'
+    | '/invite/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  LoginRoute: typeof LoginRoute
+  MembersRoute: typeof MembersRoute
+  SetupRoute: typeof SetupRoute
   ApiConvertRoute: typeof ApiConvertRoute
   ApiDetectCrsRoute: typeof ApiDetectCrsRoute
+  ApiHealthRoute: typeof ApiHealthRoute
   ApiSuggestEditRoute: typeof ApiSuggestEditRoute
+  InviteTokenRoute: typeof InviteTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -77,6 +154,27 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/members': {
+      id: '/members'
+      path: '/members'
+      fullPath: '/members'
+      preLoaderRoute: typeof MembersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/setup': {
+      id: '/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof SetupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/convert': {
@@ -93,6 +191,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDetectCrsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/suggest-edit': {
       id: '/api/suggest-edit'
       path: '/api/suggest-edit'
@@ -100,24 +205,37 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSuggestEditRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/invite/$token': {
+      id: '/invite/$token'
+      path: '/invite/$token'
+      fullPath: '/invite/$token'
+      preLoaderRoute: typeof InviteTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  LoginRoute: LoginRoute,
+  MembersRoute: MembersRoute,
+  SetupRoute: SetupRoute,
   ApiConvertRoute: ApiConvertRoute,
   ApiDetectCrsRoute: ApiDetectCrsRoute,
+  ApiHealthRoute: ApiHealthRoute,
   ApiSuggestEditRoute: ApiSuggestEditRoute,
+  InviteTokenRoute: InviteTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
+import type { startInstance } from './start.ts'
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

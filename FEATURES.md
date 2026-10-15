@@ -23,6 +23,23 @@ What GIS Converter does today. For things we might build next, see [IDEAS.md](./
 - **Properties-only import**: when a file has records but no geometry, the app asks whether to
   import them anyway. They show in the List but not on the map.
 
+## Login and members
+
+- **Everything requires sign-in**, including the converter API and the Ask Claude helpers.
+- **First run**: a setup screen creates the first admin account.
+- **Roles**: admins manage members; members use the converter.
+- **Members page** (admins): invite a member by name, email and role. The admin gets a
+  one-time invite link (valid 7 days) to send. The member opens it and chooses their own
+  password. No email server is needed.
+- **Maintenance**: change role, disable/enable (disabling signs the member out at once),
+  delete, and "Reset password", which creates a new one-time link. Admins can't change their
+  own account here, and the last admin can't be removed.
+- **Account menu** in the header: Members (admins), change password (signs out other
+  browsers), sign out.
+- **Protection**: passwords hashed with scrypt, sessions in HttpOnly cookies, repeated failed
+  logins are throttled (5 per 15 minutes).
+- Members and sessions are stored in a SQLite database on the server.
+
 ## Layout
 
 - **App header** with the title, a light/dark toggle and the Settings button.

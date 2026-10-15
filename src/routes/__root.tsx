@@ -11,6 +11,7 @@ import { TanStackDevtools } from "@tanstack/react-devtools";
 
 import { Button } from "#/components/ui/button";
 import { Toaster } from "#/components/ui/sonner";
+import { authQueryOptions } from "#/lib/auth-query";
 import {
   getSettings,
   resolveTheme,
@@ -29,6 +30,9 @@ interface MyRouterContext {
 }
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
+  beforeLoad: async ({ context }) => ({
+    auth: await context.queryClient.ensureQueryData(authQueryOptions()),
+  }),
   head: () => ({
     meta: [
       {

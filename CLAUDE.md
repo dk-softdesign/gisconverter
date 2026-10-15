@@ -59,7 +59,30 @@ help` lists targets; the main ones are `make image`, `make run` (port 3000, over
 - `src/lib/settings.ts` — user settings (theme, defaults, export options) in localStorage,
   read via `useSettings()`.
 
+### Login and members
+
+The whole app requires login. Roles: `admin` (can manage members) and `member`.
+
+- `src/start.ts` — global request middleware: pages without a session redirect to `/login`
+  (or `/setup` until the first admin exists), `/api/*` returns 401; `/api/health` is public.
+  It also re-adds TanStack Start's CSRF check, which defining `createStart` would otherwise
+  drop — keep it when editing this file.
+- `src/lib/auth-functions.ts` — server functions for login, setup, invites and member
+  maintenance. Server functions bypass the page middleware, so each one checks access itself
+  (`requireUser` / `requireAdmin` middleware) — do the same for any new server function.
+- `src/lib/server/` — server-only: SQLite (`db.ts`, `node:sqlite`, schema created on start)
+  and `auth.ts` (scrypt password hashes, session and invite tokens stored only as SHA-256
+  hashes). Import it lazily from server code (`await import(...)`) so it stays out of the
+  client bundle.
+- Pages: `/login`, `/setup`, `/invite/$token` (invite and password-reset links), `/members`.
+  New members get a one-time link from an admin; there is no email sending.
+- Database location: `DATABASE_PATH` (default `data/gisconverter.db`, gitignored). In Docker
+  it's `/app/data`, which must be a volume or members are lost on redeploy.
+
 ## Conventions
+
+- Only run one dev server per checkout: each regenerates `src/routeTree.gen.ts`, and two of
+  them fight over it in an endless reload loop.
 
 - Routes live in `src/routes`; `__root.tsx` is the root document. `src/routeTree.gen.ts` is
   generated — never edit it by hand.

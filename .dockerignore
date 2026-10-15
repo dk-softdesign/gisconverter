@@ -12,6 +12,9 @@ todos.json
 # Real customer sample data — never belongs in a build context or image
 source_files
 
+# Local SQLite database (members and sessions) — never bake into an image
+data
+
 # VCS / editor / OS
 .git
 .gitignore

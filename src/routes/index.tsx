@@ -5,10 +5,8 @@ import {
   CheckCircle2,
   Download,
   FolderOpen,
-  Globe,
   Loader2,
   Redo2,
-  Settings as SettingsIcon,
   Undo2,
   UploadCloud,
   XCircle,
@@ -34,6 +32,7 @@ import {
   CardHeader,
   CardTitle,
 } from "#/components/ui/card";
+import { AppHeader } from "#/components/app-header";
 import { BulkEditDialog } from "#/components/bulk-edit-dialog";
 import { SearchableSelect } from "#/components/searchable-select";
 import {
@@ -47,11 +46,10 @@ import { FeatureList } from "#/components/feature-list";
 import { GeoJsonMap } from "#/components/geojson-map";
 import { LayerLegend } from "#/components/layer-legend";
 import { PropertyEditDialog } from "#/components/property-edit-dialog";
-import { SettingsDialog } from "#/components/settings-dialog";
 import { SidePanel } from "#/components/side-panel";
 import { SchemaValidationPanel } from "#/components/schema-validation-panel";
-import { ThemeToggle } from "#/components/theme-toggle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
+import { requireSignedIn } from "#/lib/auth-query";
 import { collectFilesFromDataTransfer } from "#/lib/collect-files";
 import { SUPPORTED_SOURCE_CRS } from "#/lib/crs";
 import { groupNameOf, ISSUE_COLORS } from "#/lib/layer-colors";
@@ -102,7 +100,10 @@ function isSupportedFile(file: File): boolean {
   return SUPPORTED_EXTENSIONS.some((ext) => name.endsWith(ext));
 }
 
-export const Route = createFileRoute("/")({ component: Home });
+export const Route = createFileRoute("/")({
+  beforeLoad: ({ context, location }) => requireSignedIn(context.auth, location),
+  component: Home,
+});
 
 interface ConvertResponse {
   featureCollection: GeoJSON.FeatureCollection;
@@ -134,10 +135,6 @@ interface FileStatus {
   error?: string;
 }
 
-// Outline buttons restyled for the always-dark app header.
-const HEADER_BUTTON_CLASS =
-  "border-white/20 bg-transparent text-zinc-50 hover:bg-white/10 hover:text-zinc-50 dark:border-white/20 dark:bg-transparent dark:hover:bg-white/10";
-
 function WarningsAlert({ warnings }: { warnings: string[] }) {
   return (
     <Alert>
@@ -152,10 +149,10 @@ function WarningsAlert({ warnings }: { warnings: string[] }) {
 }
 
 function Home() {
+  const { user } = Route.useRouteContext();
   const [files, setFiles] = useState<File[]>([]);
   const [fileStatuses, setFileStatuses] = useState<FileStatus[]>([]);
   const settings = useSettings();
-  const [settingsOpen, setSettingsOpen] = useState(false);
   // null until the user (or CRS detection) picks one for the current files;
   // until then the default from Settings applies.
   const [sourceCrsChoice, setSourceCrs] = useState<string | null>(null);
@@ -741,39 +738,7 @@ function Home() {
 
   return (
     <>
-      {/* Deliberately dark in both themes, so it stands apart from the page. */}
-      <header className="border-b border-white/10 bg-zinc-900 text-zinc-50 shadow-md">
-        <div className="flex h-14 items-center justify-between gap-4 px-8">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-500 text-white">
-              <Globe className="size-5" />
-            </span>
-            {/* Two lines within the fixed h-14 — the Preview card's height relies on it. */}
-            <div className="flex min-w-0 flex-col">
-              <h1 className="text-lg leading-tight font-semibold tracking-tight">GIS Converter</h1>
-              <p className="truncate text-xs leading-tight text-zinc-400">
-                Charting every coordinate: Advanced conversion for the GIS-savvy captain
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <ClientOnly>
-              <ThemeToggle className={HEADER_BUTTON_CLASS} />
-            </ClientOnly>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className={HEADER_BUTTON_CLASS}
-              onClick={() => setSettingsOpen(true)}
-              aria-label="Settings"
-              title="Settings"
-            >
-              <SettingsIcon className="size-4" />
-            </Button>
-          </div>
-        </div>
-      </header>
+      <AppHeader user={user} />
       <div className="flex w-full flex-col gap-6 p-8">
         {!previewFocused && (
           <p className="mx-auto w-full max-w-4xl text-lg text-muted-foreground">
@@ -1274,7 +1239,6 @@ function Home() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-        <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
         <BulkEditDialog
           key={`bulk-edit-${bulkEditSessionId}`}
           open={bulkEditOpen}

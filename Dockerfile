@@ -4,6 +4,9 @@ WORKDIR /app
 # ---- dependencies (its own stage/layer so `npm ci` is only re-run when the
 # manifest changes, not on every source edit) ----
 FROM base AS deps
+# `npm ci` runs the `prepare` script (`vp config`), which installs git hooks
+# and fails without git. Hooks are meaningless in an image, so skip them.
+ENV VP_GIT_HOOKS=0
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -21,13 +24,16 @@ FROM base AS runner
 ENV NODE_ENV=production
 COPY --from=build /app/.output ./.output
 
-RUN addgroup -S app && adduser -S app -G app
+# /app/data holds the SQLite database (members and sessions). Mount a volume
+# there — without one, every redeploy starts with no members.
+RUN addgroup -S app && adduser -S app -G app && mkdir -p /app/data && chown app:app /app/data
+VOLUME /app/data
 USER app
 
 ENV PORT=3000
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -q --spider "http://127.0.0.1:${PORT}/" || exit 1
+  CMD wget -q --spider "http://127.0.0.1:${PORT}/api/health" || exit 1
 
 CMD ["node", ".output/server/index.mjs"]
