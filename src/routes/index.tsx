@@ -33,7 +33,7 @@ import { groupNameOf } from "#/lib/layer-colors";
 import type { PropertyRecord } from "#/lib/property-value";
 import { cn } from "#/lib/utils";
 
-const SUPPORTED_EXTENSIONS = [".dxf", ".zip", ".xlsx"];
+const SUPPORTED_EXTENSIONS = [".dxf", ".zip", ".xlsx", ".geojson", ".json"];
 
 function isSupportedFile(file: File): boolean {
   const name = file.name.toLowerCase();
@@ -250,7 +250,7 @@ function Home() {
     setStatus(rejectedCount > 0 && supported.length === 0 ? "error" : "idle");
     setError(
       rejectedCount > 0
-        ? `Skipped ${rejectedCount} unsupported file${rejectedCount === 1 ? "" : "s"} — only .dxf, .zip (Shapefile), and .xlsx are supported.`
+        ? `Skipped ${rejectedCount} unsupported file${rejectedCount === 1 ? "" : "s"} — only .dxf, .zip (Shapefile), .xlsx, and .geojson are supported.`
         : null,
     );
     setSourceCrs(DEFAULT_SOURCE_CRS);
@@ -370,7 +370,7 @@ function Home() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    const baseName = files[0]?.name.replace(/\.(dxf|zip|xlsx)$/i, "") ?? "converted";
+    const baseName = files[0]?.name.replace(/\.(dxf|zip|xlsx|geojson|json)$/i, "") ?? "converted";
     link.download =
       files.length > 1 ? `${baseName}-and-${files.length - 1}-more.geojson` : `${baseName}.geojson`;
     link.click();
@@ -385,7 +385,8 @@ function Home() {
             <h1 className="text-4xl font-bold">GIS Converter</h1>
             <p className="mt-2 text-lg text-muted-foreground">
               Convert DXF, Shapefile (zipped), or Excel files — one at a time or in bulk — to
-              GeoJSON and preview them together on a map.
+              GeoJSON and preview them together on a map, or load an existing GeoJSON file to edit
+              and validate it against a schema.
             </p>
           </div>
           <ClientOnly>
@@ -423,8 +424,9 @@ function Home() {
             <CardHeader>
               <CardTitle>Convert files</CardTitle>
               <CardDescription>
-                Currently supported: DXF, Shapefile (.zip), Excel (.xlsx) → GeoJSON. Select or drop
-                multiple files, or a whole folder, to convert them together.
+                Currently supported: DXF, Shapefile (.zip), Excel (.xlsx) → GeoJSON, plus existing
+                GeoJSON files for editing and schema validation. Select or drop multiple files, or a
+                whole folder, to convert them together.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
@@ -432,7 +434,7 @@ function Home() {
                 <input
                   ref={inputRef}
                   type="file"
-                  accept=".dxf,.zip,.xlsx"
+                  accept=".dxf,.zip,.xlsx,.geojson,.json"
                   multiple
                   className="hidden"
                   onChange={(e) => selectFiles([...(e.target.files ?? [])])}
@@ -460,7 +462,8 @@ function Home() {
                   <UploadCloud className="size-8 text-muted-foreground" />
                   <p className="text-sm">
                     <span className="font-medium">
-                      Drag and drop .dxf, .zip (Shapefile), or .xlsx files (or a folder) here
+                      Drag and drop .dxf, .zip (Shapefile), .xlsx, or .geojson files (or a folder)
+                      here
                     </span>
                     , or click to browse.
                   </p>
@@ -496,8 +499,9 @@ function Home() {
                 <p className="text-sm text-muted-foreground">
                   Used when the file doesn&apos;t specify its own coordinate system — always for
                   DXF; for a Shapefile only if it has no .prj file; for Excel only if its geom
-                  column (or coordinate columns) don&apos;t declare one. The output GeoJSON is
-                  always in WGS 84 (EPSG:4326).
+                  column (or coordinate columns) don&apos;t declare one; for GeoJSON only if it has
+                  no &quot;crs&quot; member and its coordinates aren&apos;t lon/lat. The output
+                  GeoJSON is always in WGS 84 (EPSG:4326).
                 </p>
               </div>
 

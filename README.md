@@ -1,4 +1,4 @@
-# GIS Converter
+# GIS Converter V1
 
 A dashboard for converting GIS file formats (Shapefile, KML, GPX, GML, ...) to GeoJSON.
 Built with TanStack Start (TypeScript, React, Node.js) as a single full-stack app.

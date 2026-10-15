@@ -1,3 +1,4 @@
+import { Loader2, Sparkles, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "#/components/ui/button";
@@ -28,6 +29,8 @@ import {
 
 const ALL_KEYS_SCOPE = "*";
 const PREVIEW_SAMPLE_SIZE = 8;
+const SAVED_PRESETS_KEY = "gisconverter:bulk-edit-presets";
+const CLAUDE_SAMPLE_SIZE = 20;
 
 interface BulkEditDialogProps {
   open: boolean;
@@ -45,6 +48,37 @@ interface PreviewRow {
   after: PropertyRecord | null;
   changed: boolean;
   error: string | null;
+}
+
+interface ReplacePreset {
+  pattern: string;
+  replacement: string;
+  caseInsensitive: boolean;
+}
+
+// Keyed by the user's short name; saving under an existing name overwrites it.
+interface SavedPresets {
+  replace: Record<string, ReplacePreset>;
+  script: Record<string, string>;
+}
+
+function loadSavedPresets(): SavedPresets {
+  try {
+    const raw = localStorage.getItem(SAVED_PRESETS_KEY);
+    if (!raw) return { replace: {}, script: {} };
+    const parsed = JSON.parse(raw) as Partial<SavedPresets>;
+    return { replace: parsed.replace ?? {}, script: parsed.script ?? {} };
+  } catch {
+    return { replace: {}, script: {} };
+  }
+}
+
+function storeSavedPresets(presets: SavedPresets) {
+  try {
+    localStorage.setItem(SAVED_PRESETS_KEY, JSON.stringify(presets));
+  } catch {
+    // localStorage unavailable (private browsing, etc.) — presets just won't persist.
+  }
 }
 
 function applySetValue(before: PropertyRecord, key: string, value: PropertyRecord[string]) {
@@ -106,6 +140,18 @@ export function BulkEditDialog({
   const [caseInsensitive, setCaseInsensitive] = useState(false);
 
   const [script, setScript] = useState("");
+
+  const [savedPresets, setSavedPresets] = useState(loadSavedPresets);
+
+  function updateSavedPresets(next: SavedPresets) {
+    setSavedPresets(next);
+    storeSavedPresets(next);
+  }
+
+  function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+    const { [key]: _removed, ...rest } = record;
+    return rest;
+  }
 
   const preview = useMemo((): { rows: PreviewRow[]; scriptError: string | null } => {
     if (mode === "set") {
@@ -241,6 +287,47 @@ export function BulkEditDialog({
           </TabsContent>
 
           <TabsContent value="replace" className="flex flex-col gap-3">
+            <PresetBar
+              idPrefix="bulk-replace"
+              names={Object.keys(savedPresets.replace)}
+              canSave={pattern !== ""}
+              onLoad={(name) => {
+                const preset = savedPresets.replace[name];
+                if (!preset) return;
+                setPattern(preset.pattern);
+                setReplacement(preset.replacement);
+                setCaseInsensitive(preset.caseInsensitive);
+              }}
+              onSave={(name) =>
+                updateSavedPresets({
+                  ...savedPresets,
+                  replace: {
+                    ...savedPresets.replace,
+                    [name]: { pattern, replacement, caseInsensitive },
+                  },
+                })
+              }
+              onDelete={(name) =>
+                updateSavedPresets({
+                  ...savedPresets,
+                  replace: withoutKey(savedPresets.replace, name),
+                })
+              }
+            />
+            <AskClaude
+              idPrefix="bulk-replace"
+              mode="replace"
+              features={features}
+              scopeKey={replaceScope === ALL_KEYS_SCOPE ? null : replaceScope}
+              placeholder="e.g. strip leading zeros from house numbers"
+              onSuggestion={(suggestion) => {
+                if (typeof suggestion.pattern === "string") setPattern(suggestion.pattern);
+                if (typeof suggestion.replacement === "string")
+                  setReplacement(suggestion.replacement);
+                if (typeof suggestion.caseInsensitive === "boolean")
+                  setCaseInsensitive(suggestion.caseInsensitive);
+              }}
+            />
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium" htmlFor="bulk-replace-scope">
                 Property
@@ -299,6 +386,37 @@ export function BulkEditDialog({
           </TabsContent>
 
           <TabsContent value="script" className="flex flex-col gap-2">
+            <PresetBar
+              idPrefix="bulk-script"
+              names={Object.keys(savedPresets.script)}
+              canSave={script.trim() !== ""}
+              onLoad={(name) => {
+                const saved = savedPresets.script[name];
+                if (saved !== undefined) setScript(saved);
+              }}
+              onSave={(name) =>
+                updateSavedPresets({
+                  ...savedPresets,
+                  script: { ...savedPresets.script, [name]: script },
+                })
+              }
+              onDelete={(name) =>
+                updateSavedPresets({
+                  ...savedPresets,
+                  script: withoutKey(savedPresets.script, name),
+                })
+              }
+            />
+            <AskClaude
+              idPrefix="bulk-script"
+              mode="script"
+              features={features}
+              scopeKey={null}
+              placeholder="e.g. combine street and number into an address property"
+              onSuggestion={(suggestion) => {
+                if (typeof suggestion.script === "string") setScript(suggestion.script);
+              }}
+            />
             <label className="text-sm font-medium" htmlFor="bulk-script">
               Script body — receives <code>props</code> and <code>feature</code>, must{" "}
               <code>return</code> the new properties object
@@ -366,6 +484,172 @@ export function BulkEditDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+interface AskClaudeProps {
+  idPrefix: string;
+  mode: "replace" | "script";
+  features: GeoJSON.Feature[];
+  scopeKey: string | null;
+  placeholder: string;
+  onSuggestion: (suggestion: Record<string, unknown>) => void;
+}
+
+// Sends a plain-language instruction plus a few sample rows to /api/suggest-edit
+// and fills the tab's fields with what comes back. Nothing is applied — the
+// suggestion lands in the normal preview for the user to check first.
+function AskClaude({
+  idPrefix,
+  mode,
+  features,
+  scopeKey,
+  placeholder,
+  onSuggestion,
+}: AskClaudeProps) {
+  const [instruction, setInstruction] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [explanation, setExplanation] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleAsk() {
+    setLoading(true);
+    setError(null);
+    setExplanation(null);
+    try {
+      const response = await fetch("/api/suggest-edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode,
+          instruction,
+          scopeKey,
+          samples: features.slice(0, CLAUDE_SAMPLE_SIZE).map((f) => f.properties ?? {}),
+        }),
+      });
+      const body = (await response.json()) as Record<string, unknown>;
+      if (!response.ok) {
+        setError(typeof body.error === "string" ? body.error : "Claude request failed.");
+        return;
+      }
+      onSuggestion(body);
+      if (typeof body.explanation === "string") setExplanation(body.explanation);
+    } catch {
+      setError("Couldn't reach the server.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const canAsk = instruction.trim() !== "" && !loading;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-sm font-medium" htmlFor={`${idPrefix}-ask`}>
+        Ask Claude
+      </label>
+      <div className="flex gap-2">
+        <Input
+          id={`${idPrefix}-ask`}
+          value={instruction}
+          onChange={(e) => setInstruction(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && canAsk) {
+              e.preventDefault();
+              void handleAsk();
+            }
+          }}
+          placeholder={placeholder}
+        />
+        <Button type="button" variant="outline" disabled={!canAsk} onClick={handleAsk}>
+          {loading ? <Loader2 className="animate-spin" /> : <Sparkles />}
+          Generate
+        </Button>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      {explanation && <p className="text-xs text-muted-foreground">{explanation}</p>}
+    </div>
+  );
+}
+
+interface PresetBarProps {
+  idPrefix: string;
+  names: string[];
+  canSave: boolean;
+  onLoad: (name: string) => void;
+  onSave: (name: string) => void;
+  onDelete: (name: string) => void;
+}
+
+// Load / save-as / delete row for named presets. Loading a preset also fills
+// the name field, so tweaking and re-saving updates it in place.
+function PresetBar({ idPrefix, names, canSave, onLoad, onSave, onDelete }: PresetBarProps) {
+  const [selected, setSelected] = useState("");
+  const [name, setName] = useState("");
+  const trimmedName = name.trim();
+  const sortedNames = [...names].sort((a, b) => a.localeCompare(b));
+
+  return (
+    <div className="flex items-end gap-2">
+      <div className="flex flex-1 flex-col gap-1.5">
+        <label className="text-sm font-medium" htmlFor={`${idPrefix}-preset`}>
+          Saved
+        </label>
+        <Select
+          value={selected}
+          onValueChange={(value) => {
+            setSelected(value);
+            setName(value);
+            onLoad(value);
+          }}
+          disabled={sortedNames.length === 0}
+        >
+          <SelectTrigger id={`${idPrefix}-preset`} className="w-full">
+            <SelectValue
+              placeholder={sortedNames.length > 0 ? "Load saved…" : "Nothing saved yet"}
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {sortedNames.map((presetName) => (
+              <SelectItem key={presetName} value={presetName}>
+                {presetName}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        aria-label="Delete saved"
+        disabled={!selected}
+        onClick={() => {
+          onDelete(selected);
+          setSelected("");
+        }}
+      >
+        <Trash2 />
+      </Button>
+      <Input
+        aria-label="Name to save as"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Short name"
+        className="w-40"
+      />
+      <Button
+        type="button"
+        variant="outline"
+        disabled={!trimmedName || !canSave}
+        onClick={() => {
+          onSave(trimmedName);
+          setSelected(trimmedName);
+        }}
+      >
+        {names.includes(trimmedName) ? "Update" : "Save"}
+      </Button>
+    </div>
   );
 }
 

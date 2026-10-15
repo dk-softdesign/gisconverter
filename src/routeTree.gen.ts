@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiConvertRouteImport } from './routes/api/convert'
 import { Route as ApiDetectCrsRouteImport } from './routes/api/detect-crs'
+import { Route as ApiSuggestEditRouteImport } from './routes/api/suggest-edit'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,35 +29,45 @@ const ApiDetectCrsRoute = ApiDetectCrsRouteImport.update({
   path: '/api/detect-crs',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSuggestEditRoute = ApiSuggestEditRouteImport.update({
+  id: '/api/suggest-edit',
+  path: '/api/suggest-edit',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/convert': typeof ApiConvertRoute
   '/api/detect-crs': typeof ApiDetectCrsRoute
+  '/api/suggest-edit': typeof ApiSuggestEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/convert': typeof ApiConvertRoute
   '/api/detect-crs': typeof ApiDetectCrsRoute
+  '/api/suggest-edit': typeof ApiSuggestEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/convert': typeof ApiConvertRoute
   '/api/detect-crs': typeof ApiDetectCrsRoute
+  '/api/suggest-edit': typeof ApiSuggestEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/convert' | '/api/detect-crs'
+  fullPaths: '/' | '/api/convert' | '/api/detect-crs' | '/api/suggest-edit'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/convert' | '/api/detect-crs'
-  id: '__root__' | '/' | '/api/convert' | '/api/detect-crs'
+  to: '/' | '/api/convert' | '/api/detect-crs' | '/api/suggest-edit'
+  id:
+    '__root__' | '/' | '/api/convert' | '/api/detect-crs' | '/api/suggest-edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiConvertRoute: typeof ApiConvertRoute
   ApiDetectCrsRoute: typeof ApiDetectCrsRoute
+  ApiSuggestEditRoute: typeof ApiSuggestEditRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +93,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDetectCrsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/suggest-edit': {
+      id: '/api/suggest-edit'
+      path: '/api/suggest-edit'
+      fullPath: '/api/suggest-edit'
+      preLoaderRoute: typeof ApiSuggestEditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +107,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiConvertRoute: ApiConvertRoute,
   ApiDetectCrsRoute: ApiDetectCrsRoute,
+  ApiSuggestEditRoute: ApiSuggestEditRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
