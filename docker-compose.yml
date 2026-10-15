@@ -7,31 +7,49 @@
 services:
   app:
     image: ${IMAGE:-dockerrepo.softdesign.dk:5000/gisconverter:latest}
+
     ports:
       - "6228:3000"
+
     # Read from the deploying shell, e.g. `ANTHROPIC_API_KEY=... docker stack deploy ...`.
     # Without it the app still runs; only the "Ask Claude" helpers are disabled.
+
     environment:
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-    # Members and sessions (SQLite). Keep this volume — losing it means
-    # setting up the first admin again.
+      - APP_ENV=${APP_ENV}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+
+    # Members, sessions and per-member data (SQLite) on the NAS, so the data is
+    # the same whichever node the service runs on.
     volumes:
-      - gisconverter-data:/app/data
+      - sdnas:/app/data
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 5s
       start_period: 10s
       retries: 3
+
     deploy:
-      # Keep at 1: members/sessions live in SQLite on a node-local volume, and
-      # login throttling is in memory. If the swarm has several nodes, pin the
-      # service to one (placement constraint) so it always finds its volume.
+      # Keep at 1: SQLite expects a single writer, and login throttling is in
+      # memory.
       replicas: 1
       restart_policy:
         condition: on-failure
       update_config:
-        order: start-first
+        # stop-first: never two containers on the database at once (start-first
+        # would briefly run old and new side by side, which SQLite over NFS
+        # can't lock safely). Costs a few seconds of downtime per deploy.
+        order: stop-first
 
 volumes:
-  gisconverter-data:
+  # NFS share on the NAS, mounted by whichever node runs the service. The
+  # folder must already exist on the NAS and be writable by the container's
+  # user (uid 100, gid 101) — e.g. map all users to one account in the
+  # share's NFS rule. APP_ENV comes from the deploying shell and picks the
+  # folder, e.g. `APP_ENV=production docker stack deploy ...`.
+  sdnas:
+    driver: local
+    driver_opts:
+      type: "nfs"
+      device: ":/volume1/${APP_ENV:?Set APP_ENV (e.g. production) to choose the NAS folder}/gisconverter"
+      o: "addr=192.168.206.249,nfsvers=4"

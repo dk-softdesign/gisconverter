@@ -48,9 +48,12 @@ export function getDb(): DatabaseSync {
   if (db) return db;
   mkdirSync(dirname(DATABASE_PATH), { recursive: true });
   const opened = new DatabaseSync(DATABASE_PATH);
-  // WAL + a busy timeout let a second process (e.g. a start-first redeploy)
-  // briefly share the file without "database is locked" errors.
-  opened.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;");
+  // Rollback journal (DELETE), not WAL: WAL needs shared memory between
+  // processes, which doesn't work when the file is on a network share (the
+  // Docker deployment keeps it on NFS). The busy timeout covers brief overlaps.
+  opened.exec(
+    "PRAGMA journal_mode = DELETE; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;",
+  );
   opened.exec(MIGRATIONS);
   db = opened;
   return db;

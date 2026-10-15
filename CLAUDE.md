@@ -80,7 +80,9 @@ The whole app requires login. Roles: `admin` (can manage members) and `member`.
 - Pages: `/login`, `/setup`, `/invite/$token` (invite and password-reset links), `/members`.
   New members get a one-time link from an admin; there is no email sending.
 - Database location: `DATABASE_PATH` (default `data/gisconverter.db`, gitignored). In Docker
-  it's `/app/data`, which must be a volume or members are lost on redeploy.
+  it's `/app/data`; on the swarm that's the `sdnas` NFS volume (see `docker-compose.yml`), so
+  it survives redeploys on any node. Because it can sit on NFS, SQLite runs with a rollback
+  journal (not WAL) and deploys are `stop-first` — keep both.
 
 ## Conventions
 
