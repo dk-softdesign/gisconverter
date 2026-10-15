@@ -38,13 +38,14 @@ interface PropertyMappingDialogProps {
   schema: GisSchema;
   sourceKeys: string[];
   features: GeoJSON.Feature[];
-  onApply: (renameMap: Record<string, string | null>) => void;
+  onApply: (renameMap: Record<string, string>) => void;
   // Progress saved earlier for this layer+schema, fetched before opening.
   saved: SavedMapping | null;
 }
 
 const SKIP_VALUE = "__skip__";
-const REMOVE_VALUE = "__remove__";
+// Older saved progress may still hold this; it's restored as "Don't rename".
+const LEGACY_REMOVE_VALUE = "__remove__";
 const VALUE_SAMPLE_LIMIT = 8;
 export interface SavedMapping {
   selections: Record<string, string>;
@@ -122,14 +123,15 @@ export function PropertyMappingDialog({
     );
     if (!saved) return defaults;
     for (const row of rows) {
-      if (row.sourceKey in saved.selections)
-        defaults[row.sourceKey] = saved.selections[row.sourceKey];
+      const savedValue = saved.selections[row.sourceKey];
+      if (savedValue !== undefined)
+        defaults[row.sourceKey] = savedValue === LEGACY_REMOVE_VALUE ? SKIP_VALUE : savedValue;
     }
     return defaults;
   });
 
   // Purely a manual progress aid while working through a long property list —
-  // not sent to onApply, and doesn't affect what gets renamed or removed.
+  // not sent to onApply, and doesn't affect what gets renamed.
   const [reviewed, setReviewed] = useState<Set<string>>(() => {
     if (!saved) return new Set();
     const rowKeys = new Set(rows.map((row) => row.sourceKey));
@@ -163,7 +165,7 @@ export function PropertyMappingDialog({
     : rows;
 
   // Applies to the rows currently shown by the search. Rows ticked as reviewed
-  // are left alone, so "remove everything else" after confirming a few
+  // are left alone, so resetting everything else after confirming a few
   // mappings doesn't wipe those out.
   function setAllUnreviewed(value: string) {
     setSelections((prev) => {
@@ -202,7 +204,7 @@ export function PropertyMappingDialog({
   const usedTargetKeys = useMemo(() => {
     const used = new Set<string>();
     for (const target of Object.values(selections)) {
-      if (target !== SKIP_VALUE && target !== REMOVE_VALUE) used.add(target);
+      if (target !== SKIP_VALUE) used.add(target);
     }
     return used;
   }, [selections]);
@@ -214,7 +216,6 @@ export function PropertyMappingDialog({
     const counts = new Map<string, number>();
     for (const key of sourceKeys) {
       const target = selections[key] ?? SKIP_VALUE;
-      if (target === REMOVE_VALUE) continue;
       const resulting = target === SKIP_VALUE ? key : target;
       counts.set(resulting, (counts.get(resulting) ?? 0) + 1);
     }
@@ -224,10 +225,9 @@ export function PropertyMappingDialog({
   const changeCount = Object.values(selections).filter((v) => v !== SKIP_VALUE).length;
 
   function handleApply() {
-    const renameMap: Record<string, string | null> = {};
+    const renameMap: Record<string, string> = {};
     for (const [sourceKey, targetKey] of Object.entries(selections)) {
-      if (targetKey === SKIP_VALUE) continue;
-      renameMap[sourceKey] = targetKey === REMOVE_VALUE ? null : targetKey;
+      if (targetKey !== SKIP_VALUE) renameMap[sourceKey] = targetKey;
     }
     // Done with this mapping, so its saved progress goes. Best effort: a
     // leftover draft is harmless and can be cleared in Settings.
@@ -241,10 +241,11 @@ export function PropertyMappingDialog({
         <DialogHeader>
           <DialogTitle>Match property names — {layerLabel}</DialogTitle>
           <DialogDescription>
-            Rename or remove properties on {featureCount} feature{featureCount === 1 ? "" : "s"} to
-            match the {schemaLabel} schema. Suggestions are based on the schema&apos;s source-field
-            aliases and names — review and adjust before applying, or type a custom name to rename a
-            property to something outside the schema.
+            Rename properties on {featureCount} feature{featureCount === 1 ? "" : "s"} to match the{" "}
+            {schemaLabel} schema. Suggestions are based on the schema&apos;s source-field aliases
+            and names — review and adjust before applying, or type a custom name to rename a
+            property to something outside the schema. To delete a property, use its column in the
+            List tab.
           </DialogDescription>
           {rows.length > 0 && (
             <p className="text-xs text-muted-foreground">
@@ -281,15 +282,6 @@ export function PropertyMappingDialog({
             >
               Don&apos;t rename
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={() => setAllUnreviewed(REMOVE_VALUE)}
-            >
-              Remove property
-            </Button>
           </div>
         )}
 
@@ -314,11 +306,7 @@ export function PropertyMappingDialog({
                 sourceKey={row.sourceKey}
                 confidence={row.confidence}
                 selected={selected}
-                collides={
-                  selected !== SKIP_VALUE &&
-                  selected !== REMOVE_VALUE &&
-                  (resultingKeyCounts.get(selected) ?? 0) > 1
-                }
+                collides={selected !== SKIP_VALUE && (resultingKeyCounts.get(selected) ?? 0) > 1}
                 onChange={(value) => setSelections((prev) => ({ ...prev, [row.sourceKey]: value }))}
                 schemaProperties={schemaProperties}
                 takenKeys={takenKeys}
@@ -374,14 +362,11 @@ function MappingRow({
 }: MappingRowProps) {
   const selectedOption = schemaProperties.find((option) => option.key === selected);
   const enumValues = selectedOption?.enum;
-  const isCustom = selected !== SKIP_VALUE && selected !== REMOVE_VALUE && !selectedOption;
+  const isCustom = selected !== SKIP_VALUE && !selectedOption;
 
   let hint = CONFIDENCE_LABEL[confidence];
   let hintClass = CONFIDENCE_CLASS[confidence];
-  if (selected === REMOVE_VALUE) {
-    hint = "This property will be removed from the output.";
-    hintClass = "text-destructive";
-  } else if (collides) {
+  if (collides) {
     hint = `Another property also ends up named "${selected}" — one value will overwrite the other.`;
     hintClass = "text-destructive";
   } else if (isCustom) {
@@ -431,7 +416,6 @@ interface TargetPropertyPickerProps {
 
 function TargetPropertyPicker({ value, onChange, options, takenKeys }: TargetPropertyPickerProps) {
   const availableOptions = options.filter((option) => !takenKeys.has(option.key));
-  const removeClass = "text-destructive data-[selected=true]:text-destructive";
 
   return (
     <SearchableSelect
@@ -440,10 +424,7 @@ function TargetPropertyPicker({ value, onChange, options, takenKeys }: TargetPro
       onValueChange={onChange}
       groups={[
         {
-          options: [
-            { value: SKIP_VALUE, label: "Don't rename" },
-            { value: REMOVE_VALUE, label: "Remove property", className: removeClass },
-          ],
+          options: [{ value: SKIP_VALUE, label: "Don't rename" }],
         },
         {
           options: availableOptions.map((option) => ({

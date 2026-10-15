@@ -91,7 +91,7 @@ interface SchemaValidationPanelProps {
   onDeleteFeature: (feature: GeoJSON.Feature) => void;
   onSelectFeatures: (features: GeoJSON.Feature[]) => void;
   onShowOnMap: (feature: GeoJSON.Feature) => void;
-  onApplyRename: (layer: string, renameMap: Record<string, string | null>) => void;
+  onApplyRename: (layer: string, renameMap: Record<string, string>) => void;
 }
 
 export function SchemaValidationPanel({

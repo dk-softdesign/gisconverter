@@ -546,10 +546,10 @@ function Home() {
     );
   }
 
-  function applyPropertyRename(layer: string, renameMap: Record<string, string | null>) {
+  function applyPropertyRename(layer: string, renameMap: Record<string, string>) {
     const propertyCount = Object.keys(renameMap).length;
     renameProperties(
-      `Renamed or removed ${plural(propertyCount, "property")} on ${layer}`,
+      `Renamed ${plural(propertyCount, "property")} on ${layer}`,
       renameMap,
       new Set([layer]),
     );

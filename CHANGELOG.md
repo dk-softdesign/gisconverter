@@ -30,6 +30,11 @@ What's new in GIS Converter, newest first.
 - **Changelog** button in the header. It opens over the current screen, so closing it (X or
   Esc) takes you straight back to your work.
 
+### Changed
+
+- _Match property names_ only renames now. To delete a property, use the delete action on
+  its column header in the List.
+
 ### Fixed
 
 - The map was empty and the List froze the browser after the preview layout change.
