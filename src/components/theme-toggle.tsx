@@ -1,29 +1,21 @@
-import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 
 import { Button } from "#/components/ui/button";
+import { updateSettings, useResolvedTheme } from "#/lib/settings";
 
-const THEME_STORAGE_KEY = "theme";
-
-export function ThemeToggle() {
-  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", isDark);
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, isDark ? "dark" : "light");
-    } catch {
-      // localStorage unavailable (private browsing, etc.) — theme just won't persist.
-    }
-  }, [isDark]);
+// Quick switch between light and dark; "System" is chosen in Settings.
+export function ThemeToggle({ className }: { className?: string }) {
+  const isDark = useResolvedTheme() === "dark";
 
   return (
     <Button
       type="button"
       variant="outline"
       size="icon"
-      onClick={() => setIsDark((d) => !d)}
+      className={className}
+      onClick={() => updateSettings({ theme: isDark ? "light" : "dark" })}
       aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
+      title={isDark ? "Switch to light theme" : "Switch to dark theme"}
     >
       {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
     </Button>

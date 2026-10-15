@@ -1,6 +1,18 @@
+// oxlint-disable typescript/no-base-to-string
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
-import { CheckCircle2, Loader2, Redo2, Undo2, UploadCloud, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  Download,
+  FolderOpen,
+  Globe,
+  Loader2,
+  Redo2,
+  Settings as SettingsIcon,
+  Undo2,
+  UploadCloud,
+  XCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert";
@@ -35,15 +47,19 @@ import { FeatureList } from "#/components/feature-list";
 import { GeoJsonMap } from "#/components/geojson-map";
 import { LayerLegend } from "#/components/layer-legend";
 import { PropertyEditDialog } from "#/components/property-edit-dialog";
+import { SettingsDialog } from "#/components/settings-dialog";
+import { SidePanel } from "#/components/side-panel";
 import { SchemaValidationPanel } from "#/components/schema-validation-panel";
 import { ThemeToggle } from "#/components/theme-toggle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { collectFilesFromDataTransfer } from "#/lib/collect-files";
-import { DEFAULT_SOURCE_CRS, SUPPORTED_SOURCE_CRS } from "#/lib/crs";
+import { SUPPORTED_SOURCE_CRS } from "#/lib/crs";
 import { groupNameOf, ISSUE_COLORS } from "#/lib/layer-colors";
 import type { PropertyRecord } from "#/lib/property-value";
 import { getSchemaEntry } from "#/lib/gis-schemas";
 import { NO_GEOMETRY_ERROR_CODE } from "#/lib/no-geometry";
+import { roundCoordinates } from "#/lib/round-coordinates";
+import { useSettings } from "#/lib/settings";
 import {
   validateLayer,
   worstSeverity,
@@ -58,7 +74,8 @@ import { cn } from "#/lib/utils";
 const HISTORY_TOAST_ID = "edit-history";
 
 function plural(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+  if (count === 1) return `${count} ${noun}`;
+  return `${count} ${noun.endsWith("y") ? `${noun.slice(0, -1)}ies` : `${noun}s`}`;
 }
 
 // Ctrl/Cmd+Z inside a text field or a dialog belongs to that field/dialog,
@@ -69,7 +86,16 @@ function isOwnUndoContext(target: EventTarget | null): boolean {
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
-const SUPPORTED_EXTENSIONS = [".dxf", ".zip", ".xlsx", ".geojson", ".json", ".kml", ".kmz"];
+const SUPPORTED_EXTENSIONS = [
+  ".dxf",
+  ".zip",
+  ".xlsx",
+  ".geojson",
+  ".json",
+  ".kml",
+  ".kmz",
+  ".gpkg",
+];
 
 function isSupportedFile(file: File): boolean {
   const name = file.name.toLowerCase();
@@ -108,10 +134,32 @@ interface FileStatus {
   error?: string;
 }
 
+// Outline buttons restyled for the always-dark app header.
+const HEADER_BUTTON_CLASS =
+  "border-white/20 bg-transparent text-zinc-50 hover:bg-white/10 hover:text-zinc-50 dark:border-white/20 dark:bg-transparent dark:hover:bg-white/10";
+
+function WarningsAlert({ warnings }: { warnings: string[] }) {
+  return (
+    <Alert>
+      <AlertTitle>Heads up</AlertTitle>
+      <AlertDescription>
+        {warnings.map((warning) => (
+          <p key={warning}>{warning}</p>
+        ))}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
 function Home() {
   const [files, setFiles] = useState<File[]>([]);
   const [fileStatuses, setFileStatuses] = useState<FileStatus[]>([]);
-  const [sourceCrs, setSourceCrs] = useState(DEFAULT_SOURCE_CRS);
+  const settings = useSettings();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // null until the user (or CRS detection) picks one for the current files;
+  // until then the default from Settings applies.
+  const [sourceCrsChoice, setSourceCrs] = useState<string | null>(null);
+  const sourceCrs = sourceCrsChoice ?? settings.defaultSourceCrs;
   const [crsDetection, setCrsDetection] = useState<CrsDetection | null>(null);
   const detectionRequestId = useRef(0);
   const [status, setStatus] = useState<"idle" | "converting" | "error">("idle");
@@ -130,6 +178,11 @@ function Home() {
   const [layerSchemaIds, setLayerSchemaIds] = useState<Record<string, string | null>>({});
   const [layerDuplicateKeys, setLayerDuplicateKeys] = useState<Record<string, string | null>>({});
   const [selectedFeatures, setSelectedFeatures] = useState<Set<GeoJSON.Feature>>(new Set());
+  // Column-level changes staged from the List tab: key → new name, or null to
+  // delete. Nothing touches the data until they're applied.
+  const [pendingColumnChanges, setPendingColumnChanges] = useState<Record<string, string | null>>(
+    {},
+  );
   const [editingFeature, setEditingFeature] = useState<GeoJSON.Feature | null>(null);
   const [editSessionId, setEditSessionId] = useState(0);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -138,13 +191,19 @@ function Home() {
   const [propertyFilters, setPropertyFilters] = useState<PropertyFilter[]>([]);
   const [isUploadCollapsed, setIsUploadCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState("map");
-  const [highlightIssues, setHighlightIssues] = useState(true);
+  // null follows the default from Settings until the checkbox is used.
+  const [highlightIssuesChoice, setHighlightIssues] = useState<boolean | null>(null);
+  const highlightIssues = highlightIssuesChoice ?? settings.highlightIssues;
   const [focusFeature, setFocusFeature] = useState<GeoJSON.Feature | null>(null);
   // Bumps per conversion; the map only re-fits its view when this (or the
   // visible layers) change.
   const [conversionId, setConversionId] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const nextFilterId = useRef(0);
+
+  // After a conversion the upload form collapses and the page switches to a
+  // working layout: source info in a side panel, the preview filling the rest.
+  const previewFocused = result !== null && isUploadCollapsed;
 
   const layers = useMemo(() => {
     if (!result) return [];
@@ -316,6 +375,56 @@ function Home() {
     return [...keys].sort();
   }, [visibleFeatureCollection]);
 
+  // Staged changes can outlive the keys they refer to (undo, hiding a layer,
+  // another edit), so only those whose key is still present count.
+  const activeColumnChanges = useMemo(() => {
+    const active: Record<string, string | null> = {};
+    for (const key of existingPropertyKeys) {
+      if (key in pendingColumnChanges) active[key] = pendingColumnChanges[key];
+    }
+    return active;
+  }, [existingPropertyKeys, pendingColumnChanges]);
+  const activeColumnChangeCount = Object.keys(activeColumnChanges).length;
+
+  function setPendingColumnChange(key: string, change: string | null | undefined) {
+    setPendingColumnChanges((prev) => {
+      const next = { ...prev };
+      if (change === undefined || change === key) delete next[key];
+      else next[key] = change;
+      return next;
+    });
+  }
+
+  // Why a staged rename of `key` to `name` can't be accepted, if it can't:
+  // it would land on a property that still exists or another rename's target,
+  // and one value would silently overwrite the other.
+  function columnRenameError(key: string, name: string): string | null {
+    if (name === "") return "Enter a property name";
+    if (name === key) return null;
+    const keptKeys = existingPropertyKeys.filter(
+      (other) => other !== key && !(other in activeColumnChanges),
+    );
+    if (keptKeys.includes(name)) return `"${name}" already exists`;
+    const otherTargets = Object.entries(activeColumnChanges)
+      .filter(([other, target]) => other !== key && target !== null)
+      .map(([, target]) => target);
+    if (otherTargets.includes(name)) return `Another property is already renamed to "${name}"`;
+    return null;
+  }
+
+  // Applies to every feature in the visible layers, regardless of the list's
+  // search/filters — a column is changed as a whole, not row by row.
+  function applyColumnChanges() {
+    if (activeColumnChangeCount === 0) return;
+    const visibleLayers = new Set(layers.filter((layer) => !hiddenLayers.has(layer)));
+    renameProperties(
+      `Renamed or removed ${plural(activeColumnChangeCount, "property")}`,
+      activeColumnChanges,
+      visibleLayers,
+    );
+    setPendingColumnChanges({});
+  }
+
   const filteredFeatureCollection = useMemo((): GeoJSON.FeatureCollection => {
     const query = searchQuery.trim().toLowerCase();
     if (!query && propertyFilters.length === 0) return visibleFeatureCollection;
@@ -416,25 +525,36 @@ function Home() {
     setLayerSchemaIds((prev) => ({ ...prev, [layer]: schemaId }));
   }
 
+  // renameMap: key → new name, or null to remove the property.
+  function renameProperties(
+    label: string,
+    renameMap: Record<string, string | null>,
+    inLayers: Set<string>,
+  ) {
+    commitFeatures(label, (features) =>
+      features.map((f) => {
+        if (!inLayers.has(groupNameOf(f))) return f;
+        const renamed: GeoJSON.GeoJsonProperties = {};
+        for (const [key, value] of Object.entries(f.properties ?? {})) {
+          if (!(key in renameMap)) {
+            renamed[key] = value;
+            continue;
+          }
+          const target = renameMap[key];
+          if (target === null) continue;
+          renamed[target] = value;
+        }
+        return { ...f, properties: renamed };
+      }),
+    );
+  }
+
   function applyPropertyRename(layer: string, renameMap: Record<string, string | null>) {
     const propertyCount = Object.keys(renameMap).length;
-    commitFeatures(
+    renameProperties(
       `Renamed or removed ${plural(propertyCount, "property")} on ${layer}`,
-      (features) =>
-        features.map((f) => {
-          if (groupNameOf(f) !== layer) return f;
-          const renamed: GeoJSON.GeoJsonProperties = {};
-          for (const [key, value] of Object.entries(f.properties ?? {})) {
-            if (!(key in renameMap)) {
-              renamed[key] = value;
-              continue;
-            }
-            const target = renameMap[key];
-            if (target === null) continue;
-            renamed[target] = value;
-          }
-          return { ...f, properties: renamed };
-        }),
+      renameMap,
+      new Set([layer]),
     );
   }
 
@@ -448,10 +568,10 @@ function Home() {
     setStatus(rejectedCount > 0 && supported.length === 0 ? "error" : "idle");
     setError(
       rejectedCount > 0
-        ? `Skipped ${rejectedCount} unsupported file${rejectedCount === 1 ? "" : "s"} — only .dxf, .zip (Shapefile), .xlsx, .geojson, and .kml/.kmz are supported.`
+        ? `Skipped ${rejectedCount} unsupported file${rejectedCount === 1 ? "" : "s"} — only .dxf, .zip (Shapefile), .xlsx, .geojson, .kml/.kmz, and .gpkg (GeoPackage) are supported.`
         : null,
     );
-    setSourceCrs(DEFAULT_SOURCE_CRS);
+    setSourceCrs(null);
     void detectCrs(supported);
   }
 
@@ -483,7 +603,8 @@ function Home() {
     if (requestId !== detectionRequestId.current) return;
     const detected = results.filter((r) => r !== null);
     const common = commonCrsMatches(detected);
-    const crs = common.includes(DEFAULT_SOURCE_CRS) ? DEFAULT_SOURCE_CRS : common[0];
+    const defaultCrs = settings.defaultSourceCrs;
+    const crs = common.includes(defaultCrs) ? defaultCrs : common[0];
     if (crs) setSourceCrs(crs);
     setCrsDetection({ status: "done", files: detected, autoSelected: crs });
   }
@@ -584,6 +705,7 @@ function Home() {
     }
 
     history.reset({ featureCollection: { type: "FeatureCollection", features }, warnings });
+    setPendingColumnChanges({});
     setHiddenLayers(new Set());
     setConversionId((id) => id + 1);
     setFocusFeature(null);
@@ -594,11 +716,16 @@ function Home() {
     setPropertyFilters([]);
     setStatus("idle");
     setIsUploadCollapsed(true);
+    setActiveTab(settings.defaultTab);
   }
 
   function downloadGeoJson() {
     if (!result) return;
-    const blob = new Blob([JSON.stringify(result.featureCollection, null, 2)], {
+    const output =
+      settings.coordinatePrecision === null
+        ? result.featureCollection
+        : roundCoordinates(result.featureCollection, settings.coordinatePrecision);
+    const blob = new Blob([JSON.stringify(output, null, settings.prettyPrint ? 2 : undefined)], {
       type: "application/geo+json; charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
@@ -613,443 +740,550 @@ function Home() {
   }
 
   return (
-    <div className="flex w-full flex-col gap-6 p-8">
-      <div className="mx-auto w-full max-w-4xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-4xl font-bold">GIS Converter</h1>
-            <p className="mt-2 text-lg text-muted-foreground">
-              Convert DXF, Shapefile (zipped), or Excel files — one at a time or in bulk — to
-              GeoJSON and preview them together on a map, or load an existing GeoJSON file to edit
-              and validate it against a schema.
-            </p>
+    <>
+      {/* Deliberately dark in both themes, so it stands apart from the page. */}
+      <header className="border-b border-white/10 bg-zinc-900 text-zinc-50 shadow-md">
+        <div className="flex h-14 items-center justify-between gap-4 px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-500 text-white">
+              <Globe className="size-5" />
+            </span>
+            {/* Two lines within the fixed h-14 — the Preview card's height relies on it. */}
+            <div className="flex min-w-0 flex-col">
+              <h1 className="text-lg leading-tight font-semibold tracking-tight">GIS Converter</h1>
+              <p className="truncate text-xs leading-tight text-zinc-400">
+                Charting every coordinate: Advanced conversion for the GIS-savvy captain
+              </p>
+            </div>
           </div>
-          <ClientOnly>
-            <ThemeToggle />
-          </ClientOnly>
-        </div>
-      </div>
-
-      <Card className="mx-auto w-full max-w-4xl">
-        {isUploadCollapsed && result ? (
-          <CardContent className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm">
-              <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />
-              <span className="font-medium">
-                {files.length === 1 ? files[0].name : `${files.length} files`}
-              </span>
-              <span className="text-muted-foreground">converted to GeoJSON</span>
-            </div>
-            <div className="flex gap-2">
-              <Button type="button" variant="secondary" size="sm" onClick={downloadGeoJson}>
-                Download GeoJSON
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setIsUploadCollapsed(false)}
-              >
-                {files.length > 1 ? "Change files" : "Change file"}
-              </Button>
-            </div>
-          </CardContent>
-        ) : (
-          <>
-            <CardHeader>
-              <CardTitle>Convert files</CardTitle>
-              <CardDescription>
-                Currently supported: DXF, Shapefile (.zip), Excel (.xlsx), KML/KMZ → GeoJSON, plus
-                existing GeoJSON files for editing and schema validation. Select or drop multiple
-                files, or a whole folder, to convert them together.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <div>
-                <input
-                  ref={inputRef}
-                  type="file"
-                  accept=".dxf,.zip,.xlsx,.geojson,.json,.kml,.kmz"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => selectFiles([...(e.target.files ?? [])])}
-                />
-                <button
-                  type="button"
-                  onClick={() => inputRef.current?.click()}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setIsDragging(true);
-                  }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDragging(false);
-                    void collectFilesFromDataTransfer(e.dataTransfer)
-                      .then(selectFiles)
-                      .catch(() => setError("Could not read the dropped files."));
-                  }}
-                  className={cn(
-                    "flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-8 text-center transition-colors",
-                    isDragging ? "border-primary bg-primary/5" : "border-input hover:bg-accent/50",
-                  )}
-                >
-                  <UploadCloud className="size-8 text-muted-foreground" />
-                  <p className="text-sm">
-                    <span className="font-medium">
-                      Drag and drop .dxf, .zip (Shapefile), .xlsx, .geojson, or .kml/.kmz files (or
-                      a folder) here
-                    </span>
-                    , or click to browse.
-                  </p>
-                  {files.length > 0 && (
-                    <span className="text-sm text-muted-foreground">
-                      {files.length === 1 ? files[0].name : `${files.length} files selected`}
-                    </span>
-                  )}
-                </button>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium" htmlFor="source-crs">
-                  Source coordinate system
-                </label>
-                <SearchableSelect
-                  id="source-crs"
-                  className="w-full sm:w-100"
-                  value={sourceCrs}
-                  onValueChange={setSourceCrs}
-                  options={SUPPORTED_SOURCE_CRS.map((crs) => ({
-                    value: crs.code,
-                    label: crs.label,
-                    keywords: [crs.code],
-                  }))}
-                  searchPlaceholder="Search coordinate systems…"
-                />
-                <CrsDetectionHint
-                  detection={crsDetection}
-                  sourceCrs={sourceCrs}
-                  onUse={setSourceCrs}
-                />
-                <p className="text-sm text-muted-foreground">
-                  Used when the file doesn&apos;t specify its own coordinate system — always for
-                  DXF; for a Shapefile only if it has no .prj file; for Excel only if its geom
-                  column (or coordinate columns) don&apos;t declare one; for GeoJSON only if it has
-                  no &quot;crs&quot; member and its coordinates aren&apos;t lon/lat. The output
-                  GeoJSON is always in WGS 84 (EPSG:4326). KML is always WGS 84, so this setting
-                  doesn&apos;t apply to it.
-                </p>
-              </div>
-
-              <div className="flex gap-3">
-                <Button
-                  type="button"
-                  disabled={
-                    files.length === 0 ||
-                    status === "converting" ||
-                    crsDetection?.status === "detecting"
-                  }
-                  onClick={handleConvert}
-                >
-                  {status === "converting" && <Loader2 className="size-4 animate-spin" />}
-                  {files.length > 1
-                    ? `Convert ${files.length} files to GeoJSON`
-                    : "Convert to GeoJSON"}
-                </Button>
-                {result && (
-                  <Button type="button" variant="secondary" onClick={downloadGeoJson}>
-                    Download GeoJSON
-                  </Button>
-                )}
-              </div>
-
-              {status === "converting" && fileStatuses.length > 1 && (
-                <ul className="flex flex-col gap-1 text-sm">
-                  {fileStatuses.map((fs) => (
-                    <li key={fs.file.name} className="flex items-center gap-2">
-                      {fs.status === "pending" && (
-                        <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-                      )}
-                      {fs.status === "done" && (
-                        <CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" />
-                      )}
-                      {fs.status === "error" && (
-                        <XCircle className="size-3.5 shrink-0 text-destructive" />
-                      )}
-                      <span className={fs.status === "error" ? "text-destructive" : undefined}>
-                        {fs.file.name}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {status === "error" && error && (
-                <Alert variant="destructive">
-                  <AlertTitle>Conversion failed</AlertTitle>
-                  <AlertDescription>
-                    {error.split("\n").map((line) => (
-                      <p key={line}>{line}</p>
-                    ))}
-                  </AlertDescription>
-                </Alert>
-              )}
-            </CardContent>
-          </>
-        )}
-
-        {result && result.warnings.length > 0 && (
-          <CardContent className="pt-0">
-            <Alert>
-              <AlertTitle>Heads up</AlertTitle>
-              <AlertDescription>
-                {result.warnings.map((warning) => (
-                  <p key={warning}>{warning}</p>
-                ))}
-              </AlertDescription>
-            </Alert>
-          </CardContent>
-        )}
-      </Card>
-
-      {result && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Preview</CardTitle>
-            <CardDescription>
-              {result.featureCollection.features.length} feature
-              {result.featureCollection.features.length === 1 ? "" : "s"}, reprojected to WGS 84
-              (EPSG:4326).
-            </CardDescription>
-            <CardAction className="flex gap-1">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!history.undoLabel}
-                title={
-                  history.undoLabel ? `Undo: ${history.undoLabel} (Ctrl+Z)` : "Nothing to undo"
-                }
-                onClick={() => undoChange()}
-              >
-                <Undo2 />
-                Undo
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!history.redoLabel}
-                title={
-                  history.redoLabel
-                    ? `Redo: ${history.redoLabel} (Ctrl+Shift+Z)`
-                    : "Nothing to redo"
-                }
-                onClick={() => redoChange()}
-              >
-                <Redo2 />
-                Redo
-              </Button>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {layers.length > 1 && (
-              <LayerLegend layers={layers} hiddenLayers={hiddenLayers} onToggle={toggleLayer} />
-            )}
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList>
-                <TabsTrigger value="map">Map</TabsTrigger>
-                <TabsTrigger value="list">List</TabsTrigger>
-                <TabsTrigger value="validation">Validation</TabsTrigger>
-              </TabsList>
-              <TabsContent value="map" className="flex flex-col gap-2">
-                {isValidating && (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                    <label htmlFor="highlight-issues" className="flex items-center gap-2">
-                      <Checkbox
-                        id="highlight-issues"
-                        checked={highlightIssues}
-                        onCheckedChange={(checked) => setHighlightIssues(checked === true)}
-                      />
-                      Highlight validation issues
-                    </label>
-                    {showIssuesOnMap && (
-                      <>
-                        <span className="flex items-center gap-1.5 text-muted-foreground">
-                          <span
-                            className="size-2.5 rounded-full"
-                            style={{ backgroundColor: ISSUE_COLORS.error }}
-                          />
-                          {plural(issueCounts.error, "feature")} with errors
-                        </span>
-                        <span className="flex items-center gap-1.5 text-muted-foreground">
-                          <span
-                            className="size-2.5 rounded-full"
-                            style={{ backgroundColor: ISSUE_COLORS.warning }}
-                          />
-                          {issueCounts.warning} with warnings only
-                        </span>
-                        <span className="flex items-center gap-1.5 text-muted-foreground">
-                          <span
-                            className="size-2.5 rounded-full"
-                            style={{ backgroundColor: ISSUE_COLORS.ok }}
-                          />
-                          no issues
-                        </span>
-                      </>
-                    )}
-                  </div>
-                )}
-                <div className="h-125 overflow-hidden rounded-lg border">
-                  <ClientOnly
-                    fallback={
-                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                        Loading map…
-                      </div>
-                    }
-                  >
-                    <GeoJsonMap
-                      featureCollection={visibleFeatureCollection}
-                      version={mapVersion}
-                      fitKey={mapFitKey}
-                      issueSeverity={showIssuesOnMap ? issueSeverity : null}
-                      focusFeature={focusFeature}
-                      onFocusHandled={clearFocusFeature}
-                    />
-                  </ClientOnly>
-                </div>
-                {withoutGeometryCount > 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    {withoutGeometryCount === visibleFeatureCollection.features.length
-                      ? "None of the features have a geometry, so there is nothing to show on the map — see the List tab."
-                      : `${plural(withoutGeometryCount, "feature")} without a geometry ${withoutGeometryCount === 1 ? "isn't" : "aren't"} shown on the map — see the List tab.`}
-                  </p>
-                )}
-              </TabsContent>
-              <TabsContent value="list" className="flex flex-col gap-2">
-                <FeatureFilterBar
-                  searchQuery={searchQuery}
-                  onSearchQueryChange={setSearchQuery}
-                  existingKeys={existingPropertyKeys}
-                  filters={propertyFilters}
-                  onAddFilter={addPropertyFilter}
-                  onRemoveFilter={removePropertyFilter}
-                />
-                {(searchQuery.trim() || propertyFilters.length > 0) && (
-                  <p className="text-sm text-muted-foreground">
-                    {filteredFeatureCollection.features.length} of{" "}
-                    {visibleFeatureCollection.features.length} features match
-                  </p>
-                )}
-                {selectedFeatures.size > 0 && (
-                  <div className="flex items-center justify-between rounded-lg border bg-muted/50 px-3 py-2">
-                    <span className="text-sm">{selectedFeatures.size} selected</span>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setSelectedFeatures(new Set())}
-                      >
-                        Clear
-                      </Button>
-                      <Button type="button" size="sm" onClick={openBulkEdit}>
-                        Edit {selectedFeatures.size} selected
-                      </Button>
-                    </div>
-                  </div>
-                )}
-                <FeatureList
-                  featureCollection={filteredFeatureCollection}
-                  selectedFeatures={selectedFeatures}
-                  onToggleFeature={toggleFeatureSelection}
-                  onToggleAll={toggleAllSelection}
-                  onEditFeature={openEditDialog}
-                />
-              </TabsContent>
-              <TabsContent value="validation">
-                <SchemaValidationPanel
-                  layers={layers}
-                  featuresByLayer={featuresByLayer}
-                  validationByLayer={validationByLayer}
-                  layerSchemaIds={layerSchemaIds}
-                  onLayerSchemaChange={setLayerSchema}
-                  layerDuplicateKeys={layerDuplicateKeys}
-                  onLayerDuplicateKeyChange={(layer, key) =>
-                    setLayerDuplicateKeys((prev) => ({ ...prev, [layer]: key }))
-                  }
-                  onDeleteFeature={deleteFeature}
-                  onSelectFeatures={selectFeatures}
-                  onShowOnMap={showOnMap}
-                  onEditFeature={openEditDialog}
-                  onApplyRename={applyPropertyRename}
-                />
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-      )}
-
-      <PropertyEditDialog
-        key={`edit-${editSessionId}`}
-        feature={editingFeature}
-        open={editingFeature !== null}
-        onOpenChange={(open) => {
-          if (!open) setEditingFeature(null);
-        }}
-        onSave={(properties) => {
-          if (editingFeature) updateFeatureProperties(editingFeature, properties);
-          setEditingFeature(null);
-        }}
-      />
-      <Dialog
-        open={noGeometryPrompt !== null}
-        onOpenChange={(open) => {
-          if (!open) noGeometryPrompt?.resolve(false);
-        }}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>No geometry identified</DialogTitle>
-            <DialogDescription>
-              {noGeometryPrompt?.files.length === 1
-                ? "No geometry could be identified in this file."
-                : `No geometry could be identified in ${noGeometryPrompt?.files.length ?? 0} files.`}{" "}
-              Import anyway with only the properties available? The records won&apos;t appear on the
-              map, but can be listed, edited, validated and exported.
-            </DialogDescription>
-          </DialogHeader>
-          <ul className="flex flex-col gap-2 text-sm">
-            {noGeometryPrompt?.files.map((f) => (
-              <li key={f.index}>
-                <span className="font-medium">{f.file.name}</span>
-                <span className="text-muted-foreground"> — {plural(f.recordCount, "record")}</span>
-                <p className="text-muted-foreground">{f.message}</p>
-              </li>
-            ))}
-          </ul>
-          <DialogFooter>
+          <div className="flex items-center gap-2">
+            <ClientOnly>
+              <ThemeToggle className={HEADER_BUTTON_CLASS} />
+            </ClientOnly>
             <Button
               type="button"
               variant="outline"
-              onClick={() => noGeometryPrompt?.resolve(false)}
+              size="icon"
+              className={HEADER_BUTTON_CLASS}
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Settings"
+              title="Settings"
             >
-              Skip
+              <SettingsIcon className="size-4" />
             </Button>
-            <Button type="button" onClick={() => noGeometryPrompt?.resolve(true)}>
-              Import properties only
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <BulkEditDialog
-        key={`bulk-edit-${bulkEditSessionId}`}
-        open={bulkEditOpen}
-        features={[...selectedFeatures]}
-        existingKeys={existingPropertyKeys}
-        onOpenChange={setBulkEditOpen}
-        onApply={applyBulkEdit}
-      />
-    </div>
+          </div>
+        </div>
+      </header>
+      <div className="flex w-full flex-col gap-6 p-8">
+        {!previewFocused && (
+          <p className="mx-auto w-full max-w-4xl text-lg text-muted-foreground">
+            Convert DXF, Shapefile (zipped), Excel, KML, or GeoPackage files — one at a time or in
+            bulk — to GeoJSON and preview them together on a map, or load an existing GeoJSON file
+            to edit and validate it against a schema.
+          </p>
+        )}
+
+        {!previewFocused && (
+          <Card className="mx-auto w-full max-w-4xl">
+            <>
+              <CardHeader>
+                <CardTitle>Convert files</CardTitle>
+                <CardDescription>
+                  Currently supported: DXF, Shapefile (.zip), Excel (.xlsx), KML/KMZ, GeoPackage
+                  (.gpkg) → GeoJSON, plus existing GeoJSON files for editing and schema validation.
+                  Select or drop multiple files, or a whole folder, to convert them together.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <div>
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    accept=".dxf,.zip,.xlsx,.geojson,.json,.kml,.kmz,.gpkg"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => selectFiles([...(e.target.files ?? [])])}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => inputRef.current?.click()}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDragging(true);
+                    }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragging(false);
+                      void collectFilesFromDataTransfer(e.dataTransfer)
+                        .then(selectFiles)
+                        .catch(() => setError("Could not read the dropped files."));
+                    }}
+                    className={cn(
+                      "flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-8 text-center transition-colors",
+                      isDragging
+                        ? "border-primary bg-primary/5"
+                        : "border-input hover:bg-accent/50",
+                    )}
+                  >
+                    <UploadCloud className="size-8 text-muted-foreground" />
+                    <p className="text-sm">
+                      <span className="font-medium">
+                        Drag and drop .dxf, .zip (Shapefile), .xlsx, .geojson, .kml/.kmz, or .gpkg
+                        files (or a folder) here
+                      </span>
+                      , or click to browse.
+                    </p>
+                    {files.length > 0 && (
+                      <span className="text-sm text-muted-foreground">
+                        {files.length === 1 ? files[0].name : `${files.length} files selected`}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium" htmlFor="source-crs">
+                    Source coordinate system
+                  </label>
+                  <SearchableSelect
+                    id="source-crs"
+                    className="w-full sm:w-100"
+                    value={sourceCrs}
+                    onValueChange={setSourceCrs}
+                    options={SUPPORTED_SOURCE_CRS.map((crs) => ({
+                      value: crs.code,
+                      label: crs.label,
+                      keywords: [crs.code],
+                    }))}
+                    searchPlaceholder="Search coordinate systems…"
+                  />
+                  <CrsDetectionHint
+                    detection={crsDetection}
+                    sourceCrs={sourceCrs}
+                    onUse={setSourceCrs}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Used when the file doesn&apos;t specify its own coordinate system — always for
+                    DXF; for a Shapefile only if it has no .prj file; for Excel only if its geom
+                    column (or coordinate columns) don&apos;t declare one; for GeoJSON only if it
+                    has no &quot;crs&quot; member and its coordinates aren&apos;t lon/lat. The
+                    output GeoJSON is always in WGS 84 (EPSG:4326). KML is always WGS 84, so this
+                    setting doesn&apos;t apply to it.
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    disabled={
+                      files.length === 0 ||
+                      status === "converting" ||
+                      crsDetection?.status === "detecting"
+                    }
+                    onClick={handleConvert}
+                  >
+                    {status === "converting" && <Loader2 className="size-4 animate-spin" />}
+                    {files.length > 1
+                      ? `Convert ${files.length} files to GeoJSON`
+                      : "Convert to GeoJSON"}
+                  </Button>
+                  {result && (
+                    <Button type="button" variant="secondary" onClick={downloadGeoJson}>
+                      Download GeoJSON
+                    </Button>
+                  )}
+                  {result && (
+                    // Changed their mind about replacing the current data.
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsUploadCollapsed(true)}
+                    >
+                      Back to preview
+                    </Button>
+                  )}
+                </div>
+
+                {status === "converting" && fileStatuses.length > 1 && (
+                  <ul className="flex flex-col gap-1 text-sm">
+                    {fileStatuses.map((fs) => (
+                      <li key={fs.file.name} className="flex items-center gap-2">
+                        {fs.status === "pending" && (
+                          <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+                        )}
+                        {fs.status === "done" && (
+                          <CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" />
+                        )}
+                        {fs.status === "error" && (
+                          <XCircle className="size-3.5 shrink-0 text-destructive" />
+                        )}
+                        <span className={fs.status === "error" ? "text-destructive" : undefined}>
+                          {fs.file.name}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {status === "error" && error && (
+                  <Alert variant="destructive">
+                    <AlertTitle>Conversion failed</AlertTitle>
+                    <AlertDescription>
+                      {error.split("\n").map((line) => (
+                        <p key={line}>{line}</p>
+                      ))}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            </>
+
+            {result && result.warnings.length > 0 && (
+              <CardContent className="pt-0">
+                <WarningsAlert warnings={result.warnings} />
+              </CardContent>
+            )}
+          </Card>
+        )}
+
+        {/* While the upload form is open (Change file), the preview is hidden. */}
+        {result && previewFocused && (
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+            <SidePanel
+              storageKey="gisconverter:sidePanel"
+              title="Source"
+              description={`${files.length === 1 ? "1 file" : `${files.length} files`} converted to GeoJSON`}
+            >
+              <ul className="flex flex-col gap-1.5 text-sm">
+                {(fileStatuses.length > 0
+                  ? fileStatuses
+                  : files.map((file): FileStatus => ({ file, status: "done" }))
+                ).map((fs) => (
+                  <li key={fs.file.name} className="flex flex-col">
+                    <span className="flex items-center gap-2">
+                      {fs.status === "error" ? (
+                        <XCircle className="size-3.5 shrink-0 text-destructive" />
+                      ) : (
+                        <CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" />
+                      )}
+                      <span
+                        className={cn("truncate", fs.status === "error" && "text-destructive")}
+                        title={fs.file.name}
+                      >
+                        {fs.file.name}
+                      </span>
+                    </span>
+                    {fs.error && (
+                      <span className="pl-5.5 text-xs text-muted-foreground">{fs.error}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-col gap-2">
+                <Button type="button" onClick={downloadGeoJson}>
+                  <Download />
+                  Download GeoJSON
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setIsUploadCollapsed(false)}>
+                  <FolderOpen />
+                  {files.length > 1 ? "Change files" : "Change file"}
+                </Button>
+              </div>
+              {result.warnings.length > 0 && <WarningsAlert warnings={result.warnings} />}
+            </SidePanel>
+            {/*
+              Fills the window below the app header (3.5rem) and the page
+              padding (2 × 2rem), with a floor for short windows. It must be a
+              real height, not a min-height: the flex-1/min-h-0 chain down to
+              the map and list only resolves against a definite height —
+              otherwise the map collapses to nothing and the virtualized list
+              grows to its full content height and renders every row at once.
+              The Validation tab scrolls within it instead.
+            */}
+            <Card className="h-[max(36rem,calc(100dvh-7.5rem))] min-w-0 flex-1">
+              <CardHeader>
+                <CardTitle>Preview</CardTitle>
+                <CardDescription>
+                  {result.featureCollection.features.length} feature
+                  {result.featureCollection.features.length === 1 ? "" : "s"}, reprojected to WGS 84
+                  (EPSG:4326).
+                </CardDescription>
+                <CardAction className="flex gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!history.undoLabel}
+                    title={
+                      history.undoLabel ? `Undo: ${history.undoLabel} (Ctrl+Z)` : "Nothing to undo"
+                    }
+                    onClick={() => undoChange()}
+                  >
+                    <Undo2 />
+                    Undo
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!history.redoLabel}
+                    title={
+                      history.redoLabel
+                        ? `Redo: ${history.redoLabel} (Ctrl+Shift+Z)`
+                        : "Nothing to redo"
+                    }
+                    onClick={() => redoChange()}
+                  >
+                    <Redo2 />
+                    Redo
+                  </Button>
+                </CardAction>
+              </CardHeader>
+              <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
+                {layers.length > 1 && (
+                  <LayerLegend layers={layers} hiddenLayers={hiddenLayers} onToggle={toggleLayer} />
+                )}
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="min-h-0 flex-1">
+                  <TabsList>
+                    <TabsTrigger value="map">Map</TabsTrigger>
+                    <TabsTrigger value="list">List</TabsTrigger>
+                    <TabsTrigger value="validation">Validation</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="map" className="flex min-h-0 flex-col gap-2">
+                    {isValidating && (
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                        <label htmlFor="highlight-issues" className="flex items-center gap-2">
+                          <Checkbox
+                            id="highlight-issues"
+                            checked={highlightIssues}
+                            onCheckedChange={(checked) => setHighlightIssues(checked === true)}
+                          />
+                          Highlight validation issues
+                        </label>
+                        {showIssuesOnMap && (
+                          <>
+                            <span className="flex items-center gap-1.5 text-muted-foreground">
+                              <span
+                                className="size-2.5 rounded-full"
+                                style={{ backgroundColor: ISSUE_COLORS.error }}
+                              />
+                              {plural(issueCounts.error, "feature")} with errors
+                            </span>
+                            <span className="flex items-center gap-1.5 text-muted-foreground">
+                              <span
+                                className="size-2.5 rounded-full"
+                                style={{ backgroundColor: ISSUE_COLORS.warning }}
+                              />
+                              {issueCounts.warning} with warnings only
+                            </span>
+                            <span className="flex items-center gap-1.5 text-muted-foreground">
+                              <span
+                                className="size-2.5 rounded-full"
+                                style={{ backgroundColor: ISSUE_COLORS.ok }}
+                              />
+                              no issues
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    <div className="isolate min-h-0 flex-1 overflow-hidden rounded-lg border">
+                      <ClientOnly
+                        fallback={
+                          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                            Loading map…
+                          </div>
+                        }
+                      >
+                        <GeoJsonMap
+                          featureCollection={visibleFeatureCollection}
+                          basemap={settings.basemap}
+                          version={mapVersion}
+                          fitKey={mapFitKey}
+                          issueSeverity={showIssuesOnMap ? issueSeverity : null}
+                          focusFeature={focusFeature}
+                          onFocusHandled={clearFocusFeature}
+                        />
+                      </ClientOnly>
+                    </div>
+                    {withoutGeometryCount > 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        {withoutGeometryCount === visibleFeatureCollection.features.length
+                          ? "None of the features have a geometry, so there is nothing to show on the map — see the List tab."
+                          : `${plural(withoutGeometryCount, "feature")} without a geometry ${withoutGeometryCount === 1 ? "isn't" : "aren't"} shown on the map — see the List tab.`}
+                      </p>
+                    )}
+                  </TabsContent>
+                  <TabsContent value="list" className="flex min-h-0 flex-col gap-2">
+                    <FeatureFilterBar
+                      searchQuery={searchQuery}
+                      onSearchQueryChange={setSearchQuery}
+                      existingKeys={existingPropertyKeys}
+                      filters={propertyFilters}
+                      onAddFilter={addPropertyFilter}
+                      onRemoveFilter={removePropertyFilter}
+                    />
+                    {(searchQuery.trim() || propertyFilters.length > 0) && (
+                      <p className="text-sm text-muted-foreground">
+                        {filteredFeatureCollection.features.length} of{" "}
+                        {visibleFeatureCollection.features.length} features match
+                      </p>
+                    )}
+                    {selectedFeatures.size > 0 && (
+                      <div className="flex items-center justify-between rounded-lg border bg-muted/50 px-3 py-2">
+                        <span className="text-sm">{selectedFeatures.size} selected</span>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedFeatures(new Set())}
+                          >
+                            Clear
+                          </Button>
+                          <Button type="button" size="sm" onClick={openBulkEdit}>
+                            Edit {selectedFeatures.size} selected
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    {activeColumnChangeCount > 0 && (
+                      <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted/50 px-3 py-2">
+                        <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                          <span className="shrink-0">
+                            {plural(activeColumnChangeCount, "pending property change")}:
+                          </span>
+                          {Object.entries(activeColumnChanges).map(([key, target]) =>
+                            target === null ? (
+                              <span key={key} className="text-destructive line-through">
+                                {key}
+                              </span>
+                            ) : (
+                              <span key={key} className="text-muted-foreground">
+                                {key} → <span className="text-foreground">{target}</span>
+                              </span>
+                            ),
+                          )}
+                        </span>
+                        <div className="flex shrink-0 gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPendingColumnChanges({})}
+                          >
+                            Cancel
+                          </Button>
+                          <Button type="button" size="sm" onClick={applyColumnChanges}>
+                            Apply {plural(activeColumnChangeCount, "change")}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    <FeatureList
+                      pendingColumnChanges={activeColumnChanges}
+                      onPendingColumnChange={setPendingColumnChange}
+                      columnRenameError={columnRenameError}
+                      featureCollection={filteredFeatureCollection}
+                      selectedFeatures={selectedFeatures}
+                      onToggleFeature={toggleFeatureSelection}
+                      onToggleAll={toggleAllSelection}
+                      onEditFeature={openEditDialog}
+                    />
+                  </TabsContent>
+                  <TabsContent
+                    value="validation"
+                    className="thin-scrollbar min-h-0 overflow-y-auto"
+                  >
+                    <SchemaValidationPanel
+                      layers={layers}
+                      featuresByLayer={featuresByLayer}
+                      validationByLayer={validationByLayer}
+                      layerSchemaIds={layerSchemaIds}
+                      onLayerSchemaChange={setLayerSchema}
+                      layerDuplicateKeys={layerDuplicateKeys}
+                      onLayerDuplicateKeyChange={(layer, key) =>
+                        setLayerDuplicateKeys((prev) => ({ ...prev, [layer]: key }))
+                      }
+                      onDeleteFeature={deleteFeature}
+                      onSelectFeatures={selectFeatures}
+                      onShowOnMap={showOnMap}
+                      onEditFeature={openEditDialog}
+                      onApplyRename={applyPropertyRename}
+                    />
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        <PropertyEditDialog
+          key={`edit-${editSessionId}`}
+          feature={editingFeature}
+          open={editingFeature !== null}
+          onOpenChange={(open) => {
+            if (!open) setEditingFeature(null);
+          }}
+          onSave={(properties) => {
+            if (editingFeature) updateFeatureProperties(editingFeature, properties);
+            setEditingFeature(null);
+          }}
+        />
+        <Dialog
+          open={noGeometryPrompt !== null}
+          onOpenChange={(open) => {
+            if (!open) noGeometryPrompt?.resolve(false);
+          }}
+        >
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>No geometry identified</DialogTitle>
+              <DialogDescription>
+                {noGeometryPrompt?.files.length === 1
+                  ? "No geometry could be identified in this file."
+                  : `No geometry could be identified in ${noGeometryPrompt?.files.length ?? 0} files.`}{" "}
+                Import anyway with only the properties available? The records won&apos;t appear on
+                the map, but can be listed, edited, validated and exported.
+              </DialogDescription>
+            </DialogHeader>
+            <ul className="flex flex-col gap-2 text-sm">
+              {noGeometryPrompt?.files.map((f) => (
+                <li key={f.index}>
+                  <span className="font-medium">{f.file.name}</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    — {plural(f.recordCount, "record")}
+                  </span>
+                  <p className="text-muted-foreground">{f.message}</p>
+                </li>
+              ))}
+            </ul>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => noGeometryPrompt?.resolve(false)}
+              >
+                Skip
+              </Button>
+              <Button type="button" onClick={() => noGeometryPrompt?.resolve(true)}>
+                Import properties only
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+        <BulkEditDialog
+          key={`bulk-edit-${bulkEditSessionId}`}
+          open={bulkEditOpen}
+          features={[...selectedFeatures]}
+          existingKeys={existingPropertyKeys}
+          onOpenChange={setBulkEditOpen}
+          onApply={applyBulkEdit}
+        />
+      </div>
+    </>
   );
 }

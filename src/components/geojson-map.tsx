@@ -4,11 +4,29 @@ import { GeoJSON as GeoJsonLayer, MapContainer, TileLayer, useMap } from "react-
 
 import { getLayerColor, groupNameOf, ISSUE_COLORS } from "#/lib/layer-colors";
 import type { IssueSeverity } from "#/lib/schema-validation";
+import type { Basemap } from "#/lib/settings";
+
+const OSM_ATTRIBUTION =
+  "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors";
+const CARTO_ATTRIBUTION = `${OSM_ATTRIBUTION} &copy; <a href='https://carto.com/attributions'>CARTO</a>`;
+
+const BASEMAP_TILES: Record<Exclude<Basemap, "none">, { url: string; attribution: string }> = {
+  osm: { url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", attribution: OSM_ATTRIBUTION },
+  "carto-light": {
+    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    attribution: CARTO_ATTRIBUTION,
+  },
+  "carto-dark": {
+    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    attribution: CARTO_ATTRIBUTION,
+  },
+};
 
 import "leaflet/dist/leaflet.css";
 
 interface GeoJsonMapProps {
   featureCollection: GeoJSON.FeatureCollection;
+  basemap: Basemap;
   // Identifies this exact set of features (a new conversion, or a different
   // set of layers toggled visible). react-leaflet's <GeoJSON> layer doesn't
   // pick up changes to its `data` prop, so we key it on this to force a
@@ -45,6 +63,21 @@ function FitBounds({
       map.fitBounds(bounds, { padding: [24, 24] });
     }
   }, [featureCollection, fitKey, map]);
+
+  return null;
+}
+
+// Leaflet only re-measures on window resize; the map's container also changes
+// size when a neighbouring panel is resized, which would otherwise leave
+// unpainted tiles along the edge.
+function TrackContainerSize() {
+  const map = useMap();
+
+  useEffect(() => {
+    const observer = new ResizeObserver(() => map.invalidateSize());
+    observer.observe(map.getContainer());
+    return () => observer.disconnect();
+  }, [map]);
 
   return null;
 }
@@ -168,13 +201,15 @@ export function GeoJsonMap({
   issueSeverity,
   focusFeature,
   onFocusHandled,
+  basemap,
 }: GeoJsonMapProps) {
   return (
     <MapContainer center={[0, 0]} zoom={2} className="h-full w-full">
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors"
-      />
+      {basemap !== "none" && (
+        // Keyed so switching basemaps swaps the layer rather than updating
+        // the URL of the existing one (react-leaflet doesn't support that).
+        <TileLayer key={basemap} {...BASEMAP_TILES[basemap]} />
+      )}
       <GeoJsonLayer
         key={version}
         data={featureCollection}
@@ -182,6 +217,7 @@ export function GeoJsonMap({
         pointToLayer={makePointToLayer(issueSeverity)}
         onEachFeature={bindInspectPopup}
       />
+      <TrackContainerSize />
       <FitBounds featureCollection={featureCollection} fitKey={fitKey} />
       <FocusFeature feature={focusFeature} onHandled={onFocusHandled} />
     </MapContainer>

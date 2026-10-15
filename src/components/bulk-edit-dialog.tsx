@@ -1,3 +1,4 @@
+// oxlint-disable typescript/no-implied-eval
 import { Loader2, Sparkles, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 

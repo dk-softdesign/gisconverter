@@ -5,6 +5,10 @@ import { DEFAULT_SOURCE_CRS, isSupportedSourceCrs } from "#/lib/crs";
 import { convertDxfToGeoJson, type DxfConversionResult } from "#/lib/dxf-to-geojson";
 import { convertExcelToGeoJson, type ExcelConversionResult } from "#/lib/excel-to-geojson";
 import { convertGeoJsonToGeoJson, type GeoJsonConversionResult } from "#/lib/geojson-to-geojson";
+import {
+  convertGeoPackageToGeoJson,
+  type GeoPackageConversionResult,
+} from "#/lib/geopackage-to-geojson";
 import { convertKmlToGeoJson, type KmlConversionResult } from "#/lib/kml-to-geojson";
 import { NO_GEOMETRY_ERROR_CODE, NoGeometryError } from "#/lib/no-geometry";
 import {
@@ -19,7 +23,8 @@ type ConversionResult =
   | ShapefileConversionResult
   | ExcelConversionResult
   | GeoJsonConversionResult
-  | KmlConversionResult;
+  | KmlConversionResult
+  | GeoPackageConversionResult;
 
 function jsonResponse(result: ConversionResult) {
   return Response.json(result, {
@@ -43,11 +48,12 @@ export const Route = createFileRoute("/api/convert")({
         const isExcel = fileName.endsWith(".xlsx");
         const isGeoJson = fileName.endsWith(".geojson") || fileName.endsWith(".json");
         const isKml = fileName.endsWith(".kml") || fileName.endsWith(".kmz");
-        if (!isDxf && !isZip && !isExcel && !isGeoJson && !isKml) {
+        const isGeoPackage = fileName.endsWith(".gpkg");
+        if (!isDxf && !isZip && !isExcel && !isGeoJson && !isKml && !isGeoPackage) {
           return Response.json(
             {
               error:
-                "Only .dxf, .zip (Shapefile), .xlsx, .geojson, and .kml/.kmz files are supported right now.",
+                "Only .dxf, .zip (Shapefile), .xlsx, .geojson, .kml/.kmz, and .gpkg (GeoPackage) files are supported right now.",
             },
             { status: 400 },
           );
@@ -81,6 +87,11 @@ export const Route = createFileRoute("/api/convert")({
           if (isKml) {
             return jsonResponse(
               await convertKmlToGeoJson(await file.arrayBuffer(), file.name, allowNoGeometry),
+            );
+          }
+          if (isGeoPackage) {
+            return jsonResponse(
+              convertGeoPackageToGeoJson(await file.arrayBuffer(), crs, allowNoGeometry),
             );
           }
           if (isZip) {

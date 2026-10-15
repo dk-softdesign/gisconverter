@@ -1,3 +1,4 @@
+// oxlint-disable typescript/no-base-to-string
 // Property values arrive from very different sources (DXF text, Excel cells,
 // DBF fields) and this app treats them as string | number | boolean | null.
 export type PropertyValue = string | number | boolean | null;

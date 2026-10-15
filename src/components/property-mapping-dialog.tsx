@@ -41,7 +41,7 @@ interface PropertyMappingDialogProps {
 const SKIP_VALUE = "__skip__";
 const REMOVE_VALUE = "__remove__";
 const VALUE_SAMPLE_LIMIT = 8;
-const SAVED_MAPPING_PREFIX = "gisconverter:propertyMapping:";
+export const SAVED_MAPPING_PREFIX = "gisconverter:propertyMapping:";
 
 interface SavedMapping {
   selections: Record<string, string>;
@@ -205,6 +205,20 @@ export function PropertyMappingDialog({
     return used;
   }, [selections]);
 
+  // Property keys each row would end up writing to — a skipped row keeps its
+  // own key. Two rows landing on the same key would silently overwrite one
+  // another, which custom names make easy to do by accident.
+  const resultingKeyCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const key of sourceKeys) {
+      const target = selections[key] ?? SKIP_VALUE;
+      if (target === REMOVE_VALUE) continue;
+      const resulting = target === SKIP_VALUE ? key : target;
+      counts.set(resulting, (counts.get(resulting) ?? 0) + 1);
+    }
+    return counts;
+  }, [sourceKeys, selections]);
+
   const changeCount = Object.values(selections).filter((v) => v !== SKIP_VALUE).length;
 
   function handleApply() {
@@ -229,7 +243,8 @@ export function PropertyMappingDialog({
           <DialogDescription>
             Rename or remove properties on {featureCount} feature{featureCount === 1 ? "" : "s"} to
             match the {schemaLabel} schema. Suggestions are based on the schema&apos;s source-field
-            aliases and names — review and adjust before applying.
+            aliases and names — review and adjust before applying, or type a custom name to rename a
+            property to something outside the schema.
           </DialogDescription>
           {rows.length > 0 && (
             <p className="text-xs text-muted-foreground">
@@ -299,6 +314,11 @@ export function PropertyMappingDialog({
                 sourceKey={row.sourceKey}
                 confidence={row.confidence}
                 selected={selected}
+                collides={
+                  selected !== SKIP_VALUE &&
+                  selected !== REMOVE_VALUE &&
+                  (resultingKeyCounts.get(selected) ?? 0) > 1
+                }
                 onChange={(value) => setSelections((prev) => ({ ...prev, [row.sourceKey]: value }))}
                 schemaProperties={schemaProperties}
                 takenKeys={takenKeys}
@@ -331,6 +351,7 @@ interface MappingRowProps {
   sourceKey: string;
   confidence: MatchConfidence;
   selected: string;
+  collides: boolean;
   onChange: (value: string) => void;
   schemaProperties: SchemaPropertyOption[];
   takenKeys: Set<string>;
@@ -343,6 +364,7 @@ function MappingRow({
   sourceKey,
   confidence,
   selected,
+  collides,
   onChange,
   schemaProperties,
   takenKeys,
@@ -352,6 +374,20 @@ function MappingRow({
 }: MappingRowProps) {
   const selectedOption = schemaProperties.find((option) => option.key === selected);
   const enumValues = selectedOption?.enum;
+  const isCustom = selected !== SKIP_VALUE && selected !== REMOVE_VALUE && !selectedOption;
+
+  let hint = CONFIDENCE_LABEL[confidence];
+  let hintClass = CONFIDENCE_CLASS[confidence];
+  if (selected === REMOVE_VALUE) {
+    hint = "This property will be removed from the output.";
+    hintClass = "text-destructive";
+  } else if (collides) {
+    hint = `Another property also ends up named "${selected}" — one value will overwrite the other.`;
+    hintClass = "text-destructive";
+  } else if (isCustom) {
+    hint = "Custom name — not defined in the schema.";
+    hintClass = "text-amber-600 dark:text-amber-400";
+  }
 
   return (
     <div
@@ -381,16 +417,7 @@ function MappingRow({
           <EnumPreviewButton propertyLabel={selectedOption.label} values={enumValues} />
         )}
       </div>
-      <span
-        className={cn(
-          "text-xs",
-          selected === REMOVE_VALUE ? "text-destructive" : CONFIDENCE_CLASS[confidence],
-        )}
-      >
-        {selected === REMOVE_VALUE
-          ? "This property will be removed from the output."
-          : CONFIDENCE_LABEL[confidence]}
-      </span>
+      <span className={cn("text-xs", hintClass)}>{hint}</span>
     </div>
   );
 }
@@ -426,8 +453,10 @@ function TargetPropertyPicker({ value, onChange, options, takenKeys }: TargetPro
           })),
         },
       ]}
-      searchPlaceholder="Search properties..."
+      searchPlaceholder="Search or type a new name..."
       emptyText="No property found."
+      allowCustom
+      customItemLabel={(custom) => `Rename to "${custom}"`}
     />
   );
 }

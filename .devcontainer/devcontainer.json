@@ -7,10 +7,16 @@
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1.10.1": {},
     "ghcr.io/jungaretti/features/make:1": {}
   },
-  "postCreateCommand": "npm ci",
-  "forwardPorts": [
-    3000
-  ],
+  // Global npm installs go to a user-owned prefix: /usr/local in the node image is
+  // root-owned and the container runs as "node".
+  "containerEnv": {
+    "NPM_CONFIG_PREFIX": "/home/node/.npm-global"
+  },
+  "remoteEnv": {
+    "PATH": "/home/node/.npm-global/bin:${containerEnv:PATH}"
+  },
+  "postCreateCommand": "npm install -g vite-plus && npm ci",
+  "forwardPorts": [3000],
   "portsAttributes": {
     "3000": {
       "label": "Dev server",
@@ -27,7 +33,8 @@
         "eamodio.gitlens",
         "Anthropic.claude-code",
         "oxc.oxc-vscode",
-        "firsttris.vscode-jest-runner"
+        "firsttris.vscode-jest-runner",
+        "VoidZero.vite-plus-extension-pack"
       ],
       "settings": {
         "editor.defaultFormatter": "oxc.oxc-vscode",

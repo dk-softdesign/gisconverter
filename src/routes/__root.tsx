@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   HeadContent,
   Link,
@@ -10,6 +11,13 @@ import { TanStackDevtools } from "@tanstack/react-devtools";
 
 import { Button } from "#/components/ui/button";
 import { Toaster } from "#/components/ui/sonner";
+import {
+  getSettings,
+  resolveTheme,
+  SETTINGS_STORAGE_KEY,
+  subscribeToColorScheme,
+  subscribeToSettings,
+} from "#/lib/settings";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 
 import appCss from "../styles.css?url";
@@ -59,6 +67,27 @@ function NotFound() {
   );
 }
 
+// The inline script above sets the initial theme before first paint; this
+// keeps it in step afterwards (settings changes, OS theme changes under
+// "System"). Reads the store directly rather than through useSettings, which
+// reports the defaults during hydration and would briefly undo a dark theme.
+function ThemeSync() {
+  useEffect(() => {
+    function apply() {
+      const dark = resolveTheme(getSettings().theme) === "dark";
+      document.documentElement.classList.toggle("dark", dark);
+    }
+    apply();
+    const unsubscribeSettings = subscribeToSettings(apply);
+    const unsubscribeColorScheme = subscribeToColorScheme(apply);
+    return () => {
+      unsubscribeSettings();
+      unsubscribeColorScheme();
+    };
+  }, []);
+  return null;
+}
+
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -67,14 +96,16 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <ScriptOnce>
           {`(function () {
             try {
-              var stored = localStorage.getItem('theme');
-              var isDark = stored ? stored === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+              var settings = JSON.parse(localStorage.getItem('${SETTINGS_STORAGE_KEY}') || '{}');
+              var theme = settings.theme || localStorage.getItem('theme') || 'system';
+              var isDark = theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
               if (isDark) document.documentElement.classList.add('dark');
             } catch (e) {}
           })();`}
         </ScriptOnce>
       </head>
       <body>
+        <ThemeSync />
         {children}
         <Toaster position="bottom-center" />
         <TanStackDevtools
