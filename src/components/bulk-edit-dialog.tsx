@@ -11,16 +11,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
+import { SearchableSelect } from "#/components/searchable-select";
 import { Input } from "#/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "#/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { Textarea } from "#/components/ui/textarea";
+import { PREDEFINED_SCRIPTS } from "#/lib/predefined-scripts";
 import {
   coercePropertyValue,
   propertyValueToInputString,
@@ -37,16 +32,51 @@ interface BulkEditDialogProps {
   features: GeoJSON.Feature[];
   existingKeys: string[];
   onOpenChange: (open: boolean) => void;
-  onApply: (updates: Map<GeoJSON.Feature, PropertyRecord>) => void;
+  onApply: (updates: Map<GeoJSON.Feature, PropertyRecord>, removals: Set<GeoJSON.Feature>) => void;
 }
 
-type Mode = "set" | "replace" | "script";
+type Mode = "set" | "replace" | "script" | "remove";
+
+// What the "Set value" tab writes: one fixed value for every feature, or a
+// number that counts up per feature.
+type SetValueType = "fixed" | "sequence";
+
+const SET_VALUE_TYPES: { value: SetValueType; label: string }[] = [
+  { value: "fixed", label: "Value" },
+  { value: "sequence", label: "Sequence number" },
+];
+
+type RemoveCondition =
+  | "empty"
+  | "not-empty"
+  | "equals"
+  | "not-equals"
+  | "contains"
+  | "regex"
+  | "duplicate-keep-first"
+  | "duplicate-all";
+
+const REMOVE_CONDITIONS: { value: RemoveCondition; label: string; needsValue: boolean }[] = [
+  { value: "empty", label: "is empty (null, missing or blank)", needsValue: false },
+  { value: "not-empty", label: "is not empty", needsValue: false },
+  { value: "equals", label: "equals", needsValue: true },
+  { value: "not-equals", label: "does not equal", needsValue: true },
+  { value: "contains", label: "contains", needsValue: true },
+  { value: "regex", label: "matches regular expression", needsValue: true },
+  { value: "duplicate-keep-first", label: "is a duplicate (keep first)", needsValue: false },
+  { value: "duplicate-all", label: "is duplicated (all occurrences)", needsValue: false },
+];
+
+function isDuplicateCondition(condition: RemoveCondition) {
+  return condition === "duplicate-keep-first" || condition === "duplicate-all";
+}
 
 interface PreviewRow {
   feature: GeoJSON.Feature;
   before: PropertyRecord;
   after: PropertyRecord | null;
   changed: boolean;
+  removed: boolean;
   error: string | null;
 }
 
@@ -113,6 +143,43 @@ function compileScript(code: string): (feature: GeoJSON.Feature) => PropertyReco
   return (feature) => fn({ ...(feature.properties as PropertyRecord) }, feature);
 }
 
+// How often a feature's value occurs among the selection, and whether this
+// feature is the first one carrying it — only used by the duplicate conditions.
+interface DuplicateInfo {
+  count: number;
+  isFirst: boolean;
+}
+
+// Values are compared in their input-string form, so `equals 42` matches both the
+// number 42 and the string "42", and null/missing both count as "".
+function matchesRemoveCondition(
+  value: PropertyRecord[string] | undefined,
+  condition: RemoveCondition,
+  target: string,
+  regex: RegExp | null,
+  duplicate: DuplicateInfo,
+): boolean {
+  const text = propertyValueToInputString(value);
+  switch (condition) {
+    case "duplicate-keep-first":
+      return duplicate.count > 1 && !duplicate.isFirst;
+    case "duplicate-all":
+      return duplicate.count > 1;
+    case "empty":
+      return text.trim() === "";
+    case "not-empty":
+      return text.trim() !== "";
+    case "equals":
+      return text === target;
+    case "not-equals":
+      return text !== target;
+    case "contains":
+      return text.toLowerCase().includes(target.toLowerCase());
+    case "regex":
+      return regex !== null && regex.test(text);
+  }
+}
+
 function recordsEqual(a: PropertyRecord, b: PropertyRecord): boolean {
   const aKeys = Object.keys(a);
   const bKeys = Object.keys(b);
@@ -134,12 +201,22 @@ export function BulkEditDialog({
   const [setKey, setSetKey] = useState("");
   const [setValue, setSetValue] = useState("");
 
+  const [setValueType, setSetValueType] = useState<SetValueType>("fixed");
+  const [sequenceStart, setSequenceStart] = useState("1");
+  const [sequenceStep, setSequenceStep] = useState("1");
+
   const [replaceScope, setReplaceScope] = useState(ALL_KEYS_SCOPE);
   const [pattern, setPattern] = useState("");
   const [replacement, setReplacement] = useState("");
   const [caseInsensitive, setCaseInsensitive] = useState(false);
 
   const [script, setScript] = useState("");
+
+  const [removeKey, setRemoveKey] = useState("");
+  const [removeCondition, setRemoveCondition] = useState<RemoveCondition>("empty");
+  const [removeValue, setRemoveValue] = useState("");
+  const removeNeedsValue =
+    REMOVE_CONDITIONS.find((c) => c.value === removeCondition)?.needsValue ?? false;
 
   const [savedPresets, setSavedPresets] = useState(loadSavedPresets);
 
@@ -157,11 +234,33 @@ export function BulkEditDialog({
     if (mode === "set") {
       const key = setKey.trim();
       if (!key) return { rows: [], scriptError: null };
-      const value = coercePropertyValue(setValue);
-      const rows = features.map((feature): PreviewRow => {
+      let valueAt: (index: number) => PropertyRecord[string];
+      if (setValueType === "sequence") {
+        const start = Number(sequenceStart);
+        const step = Number(sequenceStep);
+        if (sequenceStart.trim() === "" || !Number.isInteger(start)) {
+          return { rows: [], scriptError: "Start number must be a whole number." };
+        }
+        if (sequenceStep.trim() === "" || !Number.isInteger(step) || step === 0) {
+          return { rows: [], scriptError: "Step must be a whole number other than 0." };
+        }
+        // Numbers follow the order of the selected features.
+        valueAt = (index) => start + index * step;
+      } else {
+        const value = coercePropertyValue(setValue);
+        valueAt = () => value;
+      }
+      const rows = features.map((feature, index): PreviewRow => {
         const before = (feature.properties ?? {}) as PropertyRecord;
-        const after = applySetValue(before, key, value);
-        return { feature, before, after, changed: !recordsEqual(before, after), error: null };
+        const after = applySetValue(before, key, valueAt(index));
+        return {
+          feature,
+          before,
+          after,
+          changed: !recordsEqual(before, after),
+          removed: false,
+          error: null,
+        };
       });
       return { rows, scriptError: null };
     }
@@ -177,8 +276,57 @@ export function BulkEditDialog({
       const rows = features.map((feature): PreviewRow => {
         const before = (feature.properties ?? {}) as PropertyRecord;
         const after = applyFindReplace(before, replaceScope, regex, replacement);
-        return { feature, before, after, changed: !recordsEqual(before, after), error: null };
+        return {
+          feature,
+          before,
+          after,
+          changed: !recordsEqual(before, after),
+          removed: false,
+          error: null,
+        };
       });
+      return { rows, scriptError: null };
+    }
+
+    if (mode === "remove") {
+      if (!removeKey) return { rows: [], scriptError: null };
+      let regex: RegExp | null = null;
+      if (removeCondition === "regex") {
+        if (!removeValue) return { rows: [], scriptError: null };
+        try {
+          regex = new RegExp(removeValue);
+        } catch (err) {
+          return { rows: [], scriptError: err instanceof Error ? err.message : "Invalid pattern" };
+        }
+      }
+      // Empty values are never treated as duplicates of each other — use
+      // "is empty" for those.
+      const valueOf = (feature: GeoJSON.Feature) =>
+        propertyValueToInputString((feature.properties ?? {})[removeKey]).trim();
+      const counts = new Map<string, number>();
+      for (const feature of features) {
+        const text = valueOf(feature);
+        if (text) counts.set(text, (counts.get(text) ?? 0) + 1);
+      }
+      const seen = new Set<string>();
+      const rows = features.map((feature): PreviewRow => {
+        const before = (feature.properties ?? {}) as PropertyRecord;
+        const text = valueOf(feature);
+        const duplicate = { count: text ? (counts.get(text) ?? 0) : 0, isFirst: !seen.has(text) };
+        seen.add(text);
+        const removed = matchesRemoveCondition(
+          before[removeKey],
+          removeCondition,
+          removeValue,
+          regex,
+          duplicate,
+        );
+        return { feature, before, after: null, changed: removed, removed, error: null };
+      });
+      // Group the preview by value so the duplicates sit next to each other.
+      if (isDuplicateCondition(removeCondition)) {
+        rows.sort((a, b) => valueOf(a.feature).localeCompare(valueOf(b.feature)));
+      }
       return { rows, scriptError: null };
     }
 
@@ -195,13 +343,21 @@ export function BulkEditDialog({
       const before = (feature.properties ?? {}) as PropertyRecord;
       try {
         const after = run(feature);
-        return { feature, before, after, changed: !recordsEqual(before, after), error: null };
+        return {
+          feature,
+          before,
+          after,
+          changed: !recordsEqual(before, after),
+          removed: false,
+          error: null,
+        };
       } catch (err) {
         return {
           feature,
           before,
           after: null,
           changed: false,
+          removed: false,
           error: err instanceof Error ? err.message : "Script failed",
         };
       }
@@ -212,11 +368,17 @@ export function BulkEditDialog({
     features,
     setKey,
     setValue,
+    setValueType,
+    sequenceStart,
+    sequenceStep,
     replaceScope,
     pattern,
     replacement,
     caseInsensitive,
     script,
+    removeKey,
+    removeCondition,
+    removeValue,
   ]);
 
   const changedRows = preview.rows.filter((row) => row.changed);
@@ -225,10 +387,12 @@ export function BulkEditDialog({
 
   function handleApply() {
     const updates = new Map<GeoJSON.Feature, PropertyRecord>();
+    const removals = new Set<GeoJSON.Feature>();
     for (const row of changedRows) {
-      if (row.after) updates.set(row.feature, row.after);
+      if (row.removed) removals.add(row.feature);
+      else if (row.after) updates.set(row.feature, row.after);
     }
-    onApply(updates);
+    onApply(updates, removals);
   }
 
   return (
@@ -237,8 +401,9 @@ export function BulkEditDialog({
         <DialogHeader>
           <DialogTitle>Edit {features.length} selected features</DialogTitle>
           <DialogDescription>
-            Set a property, find &amp; replace across values, or run a custom script — then review
-            the preview before applying.
+            Set or add a property (fixed value or sequence number), find &amp; replace across
+            values, run a custom script, or remove features by a property value — then review the
+            preview before applying.
           </DialogDescription>
         </DialogHeader>
 
@@ -251,6 +416,7 @@ export function BulkEditDialog({
             <TabsTrigger value="set">Set value</TabsTrigger>
             <TabsTrigger value="replace">Find &amp; replace</TabsTrigger>
             <TabsTrigger value="script">Custom JS</TabsTrigger>
+            <TabsTrigger value="remove">Remove</TabsTrigger>
           </TabsList>
 
           <TabsContent value="set" className="flex flex-col gap-3">
@@ -258,32 +424,69 @@ export function BulkEditDialog({
               <label className="text-sm font-medium" htmlFor="bulk-edit-key">
                 Property
               </label>
-              <Input
+              <SearchableSelect
                 id="bulk-edit-key"
-                list="bulk-edit-existing-keys"
                 value={setKey}
-                onChange={(e) => setSetKey(e.target.value)}
-                placeholder="e.g. status"
-                autoComplete="off"
+                onValueChange={setSetKey}
+                options={existingKeys.map((key) => ({ value: key, label: key }))}
+                placeholder="Choose or type a property…"
+                searchPlaceholder="Search or type a new property…"
+                allowCustom
+                customItemLabel={newPropertyLabel}
               />
-              <datalist id="bulk-edit-existing-keys">
-                {existingKeys.map((key) => (
-                  <option key={key} value={key}>
-                    {key}
-                  </option>
-                ))}
-              </datalist>
+              <NewPropertyHint propertyKey={setKey} existingKeys={existingKeys} />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium" htmlFor="bulk-edit-value">
-                Value
+              <label className="text-sm font-medium" htmlFor="bulk-edit-type">
+                Type
               </label>
-              <Input
-                id="bulk-edit-value"
-                value={setValue}
-                onChange={(e) => setSetValue(e.target.value)}
+              <SearchableSelect
+                id="bulk-edit-type"
+                value={setValueType}
+                onValueChange={(value) => setSetValueType(value as SetValueType)}
+                options={SET_VALUE_TYPES}
+                searchPlaceholder="Search types…"
               />
             </div>
+            {setValueType === "sequence" ? (
+              <div className="flex gap-3">
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <label className="text-sm font-medium" htmlFor="bulk-sequence-start">
+                    Start number
+                  </label>
+                  <Input
+                    id="bulk-sequence-start"
+                    type="number"
+                    step={1}
+                    value={sequenceStart}
+                    onChange={(e) => setSequenceStart(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <label className="text-sm font-medium" htmlFor="bulk-sequence-step">
+                    Step
+                  </label>
+                  <Input
+                    id="bulk-sequence-step"
+                    type="number"
+                    step={1}
+                    value={sequenceStep}
+                    onChange={(e) => setSequenceStep(e.target.value)}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium" htmlFor="bulk-edit-value">
+                  Value
+                </label>
+                <Input
+                  id="bulk-edit-value"
+                  value={setValue}
+                  onChange={(e) => setSetValue(e.target.value)}
+                />
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="replace" className="flex flex-col gap-3">
@@ -332,19 +535,16 @@ export function BulkEditDialog({
               <label className="text-sm font-medium" htmlFor="bulk-replace-scope">
                 Property
               </label>
-              <Select value={replaceScope} onValueChange={setReplaceScope}>
-                <SelectTrigger id="bulk-replace-scope" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_KEYS_SCOPE}>All properties</SelectItem>
-                  {existingKeys.map((key) => (
-                    <SelectItem key={key} value={key}>
-                      {key}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                id="bulk-replace-scope"
+                value={replaceScope}
+                onValueChange={setReplaceScope}
+                options={[
+                  { value: ALL_KEYS_SCOPE, label: "All properties" },
+                  ...existingKeys.map((key) => ({ value: key, label: key })),
+                ]}
+                searchPlaceholder="Search properties…"
+              />
             </div>
             <div className="flex gap-3">
               <div className="flex flex-1 flex-col gap-1.5">
@@ -389,9 +589,10 @@ export function BulkEditDialog({
             <PresetBar
               idPrefix="bulk-script"
               names={Object.keys(savedPresets.script)}
+              predefinedNames={Object.keys(PREDEFINED_SCRIPTS)}
               canSave={script.trim() !== ""}
-              onLoad={(name) => {
-                const saved = savedPresets.script[name];
+              onLoad={(name, predefined) => {
+                const saved = (predefined ? PREDEFINED_SCRIPTS : savedPresets.script)[name];
                 if (saved !== undefined) setScript(saved);
               }}
               onSave={(name) =>
@@ -432,6 +633,52 @@ export function BulkEditDialog({
               spellCheck={false}
             />
           </TabsContent>
+
+          <TabsContent value="remove" className="flex flex-col gap-3">
+            <p className="text-sm text-muted-foreground">
+              Remove the selected features whose property matches the condition.
+            </p>
+            <div className="flex gap-3">
+              <div className="flex flex-1 flex-col gap-1.5">
+                <label className="text-sm font-medium" htmlFor="bulk-remove-key">
+                  Property
+                </label>
+                <SearchableSelect
+                  id="bulk-remove-key"
+                  value={removeKey}
+                  onValueChange={setRemoveKey}
+                  options={existingKeys.map((key) => ({ value: key, label: key }))}
+                  placeholder="Choose property…"
+                  searchPlaceholder="Search properties…"
+                />
+              </div>
+              <div className="flex flex-1 flex-col gap-1.5">
+                <label className="text-sm font-medium" htmlFor="bulk-remove-condition">
+                  Condition
+                </label>
+                <SearchableSelect
+                  id="bulk-remove-condition"
+                  value={removeCondition}
+                  onValueChange={(value) => setRemoveCondition(value as RemoveCondition)}
+                  options={REMOVE_CONDITIONS.map(({ value, label }) => ({ value, label }))}
+                  searchPlaceholder="Search conditions…"
+                />
+              </div>
+            </div>
+            {removeNeedsValue && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium" htmlFor="bulk-remove-value">
+                  Value
+                </label>
+                <Input
+                  id="bulk-remove-value"
+                  value={removeValue}
+                  onChange={(e) => setRemoveValue(e.target.value)}
+                  className={removeCondition === "regex" ? "font-mono" : undefined}
+                />
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
 
         <div className="flex min-h-0 flex-1 flex-col gap-2 border-t pt-3">
@@ -440,7 +687,8 @@ export function BulkEditDialog({
           ) : (
             <>
               <p className="text-sm text-muted-foreground">
-                {changedRows.length} of {features.length} features will change
+                {changedRows.length} of {features.length} features will{" "}
+                {mode === "remove" ? "be removed" : "change"}
                 {erroredRows.length > 0 ? `, ${erroredRows.length} errored` : ""}
               </p>
               <div className="flex-1 overflow-y-auto rounded-md border">
@@ -457,6 +705,8 @@ export function BulkEditDialog({
                       <li key={index} className="p-2 text-xs">
                         {row.error ? (
                           <span className="text-destructive">{row.error}</span>
+                        ) : row.removed ? (
+                          <RemovedLine properties={row.before} highlightKey={removeKey} />
                         ) : (
                           <DiffLine before={row.before} after={row.after} />
                         )}
@@ -478,12 +728,38 @@ export function BulkEditDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="button" disabled={!canApply} onClick={handleApply}>
-            Apply to {changedRows.length}
+          <Button
+            type="button"
+            variant={mode === "remove" ? "destructive" : "default"}
+            disabled={!canApply}
+            onClick={handleApply}
+          >
+            {mode === "remove" ? "Remove" : "Apply to"} {changedRows.length}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function newPropertyLabel(key: string) {
+  return `Add new property "${key}"`;
+}
+
+// Confirms that a typed-in key doesn't exist yet and will be created.
+function NewPropertyHint({
+  propertyKey,
+  existingKeys,
+}: {
+  propertyKey: string;
+  existingKeys: string[];
+}) {
+  const key = propertyKey.trim();
+  if (!key || existingKeys.includes(key)) return null;
+  return (
+    <p className="text-xs text-muted-foreground">
+      New property — &quot;{key}&quot; will be added to every selected feature.
+    </p>
   );
 }
 
@@ -575,19 +851,35 @@ function AskClaude({
 interface PresetBarProps {
   idPrefix: string;
   names: string[];
+  // Built-in presets: listed first, loadable but not deletable.
+  predefinedNames?: string[];
   canSave: boolean;
-  onLoad: (name: string) => void;
+  onLoad: (name: string, predefined: boolean) => void;
   onSave: (name: string) => void;
   onDelete: (name: string) => void;
 }
 
 // Load / save-as / delete row for named presets. Loading a preset also fills
 // the name field, so tweaking and re-saving updates it in place.
-function PresetBar({ idPrefix, names, canSave, onLoad, onSave, onDelete }: PresetBarProps) {
+// Select values for predefined presets carry this prefix so they can't clash
+// with a user preset saved under the same name.
+const PREDEFINED_VALUE_PREFIX = "predefined:";
+
+function PresetBar({
+  idPrefix,
+  names,
+  predefinedNames = [],
+  canSave,
+  onLoad,
+  onSave,
+  onDelete,
+}: PresetBarProps) {
   const [selected, setSelected] = useState("");
   const [name, setName] = useState("");
   const trimmedName = name.trim();
   const sortedNames = [...names].sort((a, b) => a.localeCompare(b));
+  const hasAny = sortedNames.length > 0 || predefinedNames.length > 0;
+  const selectedIsPredefined = selected.startsWith(PREDEFINED_VALUE_PREFIX);
 
   return (
     <div className="flex items-end gap-2">
@@ -595,35 +887,40 @@ function PresetBar({ idPrefix, names, canSave, onLoad, onSave, onDelete }: Prese
         <label className="text-sm font-medium" htmlFor={`${idPrefix}-preset`}>
           Saved
         </label>
-        <Select
+        <SearchableSelect
+          id={`${idPrefix}-preset`}
           value={selected}
           onValueChange={(value) => {
+            const predefined = value.startsWith(PREDEFINED_VALUE_PREFIX);
+            const presetName = predefined ? value.slice(PREDEFINED_VALUE_PREFIX.length) : value;
             setSelected(value);
-            setName(value);
-            onLoad(value);
+            setName(presetName);
+            onLoad(presetName, predefined);
           }}
-          disabled={sortedNames.length === 0}
-        >
-          <SelectTrigger id={`${idPrefix}-preset`} className="w-full">
-            <SelectValue
-              placeholder={sortedNames.length > 0 ? "Load saved…" : "Nothing saved yet"}
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {sortedNames.map((presetName) => (
-              <SelectItem key={presetName} value={presetName}>
-                {presetName}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          groups={[
+            {
+              heading: "Predefined",
+              options: predefinedNames.map((presetName) => ({
+                value: PREDEFINED_VALUE_PREFIX + presetName,
+                label: presetName,
+              })),
+            },
+            {
+              heading: predefinedNames.length > 0 ? "Saved" : undefined,
+              options: sortedNames.map((presetName) => ({ value: presetName, label: presetName })),
+            },
+          ]}
+          placeholder={hasAny ? "Load saved…" : "Nothing saved yet"}
+          searchPlaceholder="Search saved…"
+          disabled={!hasAny}
+        />
       </div>
       <Button
         type="button"
         variant="outline"
         size="icon"
         aria-label="Delete saved"
-        disabled={!selected}
+        disabled={!selected || selectedIsPredefined}
         onClick={() => {
           onDelete(selected);
           setSelected("");
@@ -669,6 +966,28 @@ function DiffLine({ before, after }: { before: PropertyRecord; after: PropertyRe
           <span className="text-emerald-600 dark:text-emerald-400">
             {propertyValueToInputString(after[key])}
           </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function RemovedLine({
+  properties,
+  highlightKey,
+}: {
+  properties: PropertyRecord;
+  highlightKey: string;
+}) {
+  const others = Object.entries(properties).filter(([key]) => key !== highlightKey);
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-destructive line-through">
+      <span>
+        {highlightKey}: {propertyValueToInputString(properties[highlightKey]) || "∅"}
+      </span>
+      {others.slice(0, 3).map(([key, value]) => (
+        <span key={key} className="text-muted-foreground">
+          {key}: {propertyValueToInputString(value)}
         </span>
       ))}
     </div>

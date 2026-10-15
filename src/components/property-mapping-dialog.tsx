@@ -1,16 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronsUpDown, Eye, ListChecks, Save } from "lucide-react";
+import { Eye, ListChecks, Save, Search } from "lucide-react";
 
+import { SearchableSelect } from "#/components/searchable-select";
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "#/components/ui/command";
+import { Input } from "#/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -160,6 +154,25 @@ export function PropertyMappingDialog({
     }
   }
 
+  const [search, setSearch] = useState("");
+  const trimmedSearch = search.trim().toLowerCase();
+  const visibleRows = trimmedSearch
+    ? rows.filter((row) => row.sourceKey.toLowerCase().includes(trimmedSearch))
+    : rows;
+
+  // Applies to the rows currently shown by the search. Rows ticked as reviewed
+  // are left alone, so "remove everything else" after confirming a few
+  // mappings doesn't wipe those out.
+  function setAllUnreviewed(value: string) {
+    setSelections((prev) => {
+      const next = { ...prev };
+      for (const row of visibleRows) {
+        if (!reviewed.has(row.sourceKey)) next[row.sourceKey] = value;
+      }
+      return next;
+    });
+  }
+
   function toggleReviewed(sourceKey: string) {
     setReviewed((prev) => {
       const next = new Set(prev);
@@ -226,13 +239,57 @@ export function PropertyMappingDialog({
           )}
         </DialogHeader>
 
+        {rows.length > 0 && (
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search source properties…"
+              className="pl-9"
+              aria-label="Search source properties"
+            />
+          </div>
+        )}
+
+        {visibleRows.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">
+              Set all{trimmedSearch ? ` ${visibleRows.length} shown` : ""}
+              {reviewed.size > 0 ? " unreviewed" : ""} to:
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setAllUnreviewed(SKIP_VALUE)}
+            >
+              Don&apos;t rename
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setAllUnreviewed(REMOVE_VALUE)}
+            >
+              Remove property
+            </Button>
+          </div>
+        )}
+
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
           {rows.length === 0 && (
             <p className="text-sm text-muted-foreground">
               Every property on this layer already matches the schema — nothing to rename.
             </p>
           )}
-          {rows.map((row) => {
+          {rows.length > 0 && visibleRows.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No source property matches &quot;{search.trim()}&quot;.
+            </p>
+          )}
+          {visibleRows.map((row) => {
             const selected = selections[row.sourceKey] ?? SKIP_VALUE;
             const takenKeys = new Set(usedTargetKeys);
             takenKeys.delete(selected);
@@ -346,85 +403,32 @@ interface TargetPropertyPickerProps {
 }
 
 function TargetPropertyPicker({ value, onChange, options, takenKeys }: TargetPropertyPickerProps) {
-  const [open, setOpen] = useState(false);
   const availableOptions = options.filter((option) => !takenKeys.has(option.key));
-
-  const selectedLabel =
-    value === SKIP_VALUE
-      ? "Don't rename"
-      : value === REMOVE_VALUE
-        ? "Remove property"
-        : (options.find((option) => option.key === value)?.label ?? value);
-
-  function select(next: string) {
-    onChange(next);
-    setOpen(false);
-  }
+  const removeClass = "text-destructive data-[selected=true]:text-destructive";
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          aria-expanded={open}
-          className={cn(
-            "flex-1 justify-between font-normal",
-            value === REMOVE_VALUE && "text-destructive",
-          )}
-        >
-          <span className="truncate">{selectedLabel}</span>
-          <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-[var(--radix-popper-anchor-width)] p-0">
-        {/*
-          disablePointerSelection: without it, cmdk highlights whatever item is
-          under the cursor on every pointermove — including the ones that slide
-          under a stationary cursor while the list scrolls, which calls
-          scrollIntoView on each and fights the user's own wheel scroll.
-        */}
-        <Command disablePointerSelection>
-          <CommandInput placeholder="Search properties..." />
-          <CommandList>
-            <CommandEmpty>No property found.</CommandEmpty>
-            <CommandGroup>
-              <CommandItem value="Don't rename" onSelect={() => select(SKIP_VALUE)}>
-                <Check
-                  className={cn("size-4", value === SKIP_VALUE ? "opacity-100" : "opacity-0")}
-                />
-                Don&apos;t rename
-              </CommandItem>
-              <CommandItem
-                value="Remove property"
-                className="text-destructive data-[selected=true]:text-destructive"
-                onSelect={() => select(REMOVE_VALUE)}
-              >
-                <Check
-                  className={cn("size-4", value === REMOVE_VALUE ? "opacity-100" : "opacity-0")}
-                />
-                Remove property
-              </CommandItem>
-            </CommandGroup>
-            <CommandGroup>
-              {availableOptions.map((option) => (
-                <CommandItem
-                  key={option.key}
-                  value={option.label}
-                  keywords={[option.key]}
-                  onSelect={() => select(option.key)}
-                >
-                  <Check
-                    className={cn("size-4", value === option.key ? "opacity-100" : "opacity-0")}
-                  />
-                  <span className="truncate">{option.label}</span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+    <SearchableSelect
+      className="flex-1"
+      value={value}
+      onValueChange={onChange}
+      groups={[
+        {
+          options: [
+            { value: SKIP_VALUE, label: "Don't rename" },
+            { value: REMOVE_VALUE, label: "Remove property", className: removeClass },
+          ],
+        },
+        {
+          options: availableOptions.map((option) => ({
+            value: option.key,
+            label: option.label,
+            keywords: [option.key],
+          })),
+        },
+      ]}
+      searchPlaceholder="Search properties..."
+      emptyText="No property found."
+    />
   );
 }
 

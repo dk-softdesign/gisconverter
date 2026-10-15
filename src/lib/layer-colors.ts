@@ -43,3 +43,13 @@ export function getLayerColor(layer: string): string {
   }
   return PALETTE[Math.abs(hash) % PALETTE.length];
 }
+
+// Map colors while validation issues are highlighted. The layer palette also
+// contains red and amber, so features without issues switch to a neutral
+// gray instead of their layer color — otherwise a red layer would read as
+// "all errors".
+export const ISSUE_COLORS = {
+  error: "#dc2626",
+  warning: "#d97706",
+  ok: "#94a3b8",
+} as const;

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Search, X } from "lucide-react";
 
+import { SearchableSelect } from "#/components/searchable-select";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 
@@ -56,22 +57,15 @@ export function FeatureFilterBar({
           <label className="text-xs font-medium text-muted-foreground" htmlFor="filter-key">
             Property
           </label>
-          <Input
+          <SearchableSelect
             id="filter-key"
-            list="feature-filter-existing-keys"
-            value={filterKey}
-            onChange={(e) => setFilterKey(e.target.value)}
-            placeholder="e.g. status"
-            autoComplete="off"
             className="w-40"
+            value={filterKey}
+            onValueChange={setFilterKey}
+            options={existingKeys.map((key) => ({ value: key, label: key }))}
+            placeholder="Choose property…"
+            searchPlaceholder="Search properties…"
           />
-          <datalist id="feature-filter-existing-keys">
-            {existingKeys.map((key) => (
-              <option key={key} value={key}>
-                {key}
-              </option>
-            ))}
-          </datalist>
         </div>
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-medium text-muted-foreground" htmlFor="filter-value">

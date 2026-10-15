@@ -132,7 +132,7 @@ export function FeatureList({
                     ) : column.key === "__index" ? (
                       virtualRow.index + 1
                     ) : column.key === "__geometryType" ? (
-                      feature.geometry.type
+                      (feature.geometry?.type ?? "None")
                     ) : (
                       formatCellValue(properties[column.key])
                     )}

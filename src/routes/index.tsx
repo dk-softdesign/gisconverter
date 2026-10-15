@@ -1,18 +1,29 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
-import { CheckCircle2, Loader2, UploadCloud, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, Redo2, Undo2, UploadCloud, XCircle } from "lucide-react";
+import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert";
 import { Button } from "#/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#/components/ui/card";
+import { Checkbox } from "#/components/ui/checkbox";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "#/components/ui/select";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "#/components/ui/dialog";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "#/components/ui/card";
 import { BulkEditDialog } from "#/components/bulk-edit-dialog";
+import { SearchableSelect } from "#/components/searchable-select";
 import {
   CrsDetectionHint,
   commonCrsMatches,
@@ -29,11 +40,36 @@ import { ThemeToggle } from "#/components/theme-toggle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { collectFilesFromDataTransfer } from "#/lib/collect-files";
 import { DEFAULT_SOURCE_CRS, SUPPORTED_SOURCE_CRS } from "#/lib/crs";
-import { groupNameOf } from "#/lib/layer-colors";
+import { groupNameOf, ISSUE_COLORS } from "#/lib/layer-colors";
 import type { PropertyRecord } from "#/lib/property-value";
+import { getSchemaEntry } from "#/lib/gis-schemas";
+import { NO_GEOMETRY_ERROR_CODE } from "#/lib/no-geometry";
+import {
+  validateLayer,
+  worstSeverity,
+  type FeatureValidationResult,
+  type IssueSeverity,
+} from "#/lib/schema-validation";
+import { useUndoHistory } from "#/lib/undo-history";
 import { cn } from "#/lib/utils";
 
-const SUPPORTED_EXTENSIONS = [".dxf", ".zip", ".xlsx", ".geojson", ".json"];
+// One toast slot for edit/undo notices, so a new change replaces the previous
+// toast instead of stacking Undo buttons that would each undo the latest step.
+const HISTORY_TOAST_ID = "edit-history";
+
+function plural(count: number, noun: string) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+// Ctrl/Cmd+Z inside a text field or a dialog belongs to that field/dialog,
+// not to the app-level history.
+function isOwnUndoContext(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.closest('[role="dialog"]')) return true;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
+
+const SUPPORTED_EXTENSIONS = [".dxf", ".zip", ".xlsx", ".geojson", ".json", ".kml", ".kmz"];
 
 function isSupportedFile(file: File): boolean {
   const name = file.name.toLowerCase();
@@ -52,6 +88,20 @@ function stringifyPropertyValue(value: unknown): string {
   return String(value);
 }
 
+// A file the server converted fine except that it found no geometry in it;
+// the user is asked whether to import its records with properties only.
+interface NoGeometryFile {
+  file: File;
+  index: number;
+  message: string;
+  recordCount: number;
+}
+
+type ConvertOutcome =
+  | { file: File; data: ConvertResponse }
+  | { file: File; error: string }
+  | { file: File; noGeometry: NoGeometryFile };
+
 interface FileStatus {
   file: File;
   status: "pending" | "done" | "error";
@@ -65,12 +115,20 @@ function Home() {
   const [crsDetection, setCrsDetection] = useState<CrsDetection | null>(null);
   const detectionRequestId = useRef(0);
   const [status, setStatus] = useState<"idle" | "converting" | "error">("idle");
+  // While set, the no-geometry prompt is open; `resolve` receives the answer.
+  const [noGeometryPrompt, setNoGeometryPrompt] = useState<{
+    files: NoGeometryFile[];
+    resolve: (importAnyway: boolean) => void;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<ConvertResponse | null>(null);
-  const [version, setVersion] = useState(0);
+  // Every change to the converted data goes through this history, so it can
+  // be undone. `result` is the current version.
+  const history = useUndoHistory<ConvertResponse | null>(null);
+  const result = history.present;
   const [isDragging, setIsDragging] = useState(false);
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
   const [layerSchemaIds, setLayerSchemaIds] = useState<Record<string, string | null>>({});
+  const [layerDuplicateKeys, setLayerDuplicateKeys] = useState<Record<string, string | null>>({});
   const [selectedFeatures, setSelectedFeatures] = useState<Set<GeoJSON.Feature>>(new Set());
   const [editingFeature, setEditingFeature] = useState<GeoJSON.Feature | null>(null);
   const [editSessionId, setEditSessionId] = useState(0);
@@ -79,6 +137,12 @@ function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [propertyFilters, setPropertyFilters] = useState<PropertyFilter[]>([]);
   const [isUploadCollapsed, setIsUploadCollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState("map");
+  const [highlightIssues, setHighlightIssues] = useState(true);
+  const [focusFeature, setFocusFeature] = useState<GeoJSON.Feature | null>(null);
+  // Bumps per conversion; the map only re-fits its view when this (or the
+  // visible layers) change.
+  const [conversionId, setConversionId] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const nextFilterId = useRef(0);
 
@@ -96,9 +160,144 @@ function Home() {
     };
   }, [result, hiddenLayers]);
 
-  // Identifies this exact combination of conversion + visible layers, so the
-  // map's vector layer remounts whenever what it should render changes.
-  const mapVersion = `${version}:${[...hiddenLayers].sort().join(",")}`;
+  const featuresByLayer = useMemo(() => {
+    const map: Record<string, GeoJSON.Feature[]> = {};
+    for (const layer of layers) map[layer] = [];
+    for (const feature of result?.featureCollection.features ?? []) {
+      (map[groupNameOf(feature)] ??= []).push(feature);
+    }
+    return map;
+  }, [result, layers]);
+
+  // Validation runs here, once, so the Validation tab and the map's issue
+  // highlighting always agree. null for a layer with nothing to check.
+  const validationByLayer = useMemo(() => {
+    const byLayer: Record<string, FeatureValidationResult[] | null> = {};
+    for (const layer of layers) {
+      const schema = getSchemaEntry(layerSchemaIds[layer])?.schema;
+      const duplicateKey = layerDuplicateKeys[layer] ?? null;
+      byLayer[layer] =
+        schema || duplicateKey
+          ? validateLayer(featuresByLayer[layer] ?? [], schema, duplicateKey)
+          : null;
+    }
+    return byLayer;
+  }, [layers, featuresByLayer, layerSchemaIds, layerDuplicateKeys]);
+
+  const withoutGeometryCount = useMemo(
+    () => visibleFeatureCollection.features.filter((f) => !f.geometry).length,
+    [visibleFeatureCollection],
+  );
+
+  const isValidating = Object.values(validationByLayer).some((results) => results !== null);
+
+  const issueSeverity = useMemo(() => {
+    const severity = new Map<GeoJSON.Feature, IssueSeverity>();
+    for (const [layer, results] of Object.entries(validationByLayer)) {
+      for (const { featureIndex, issues } of results ?? []) {
+        const feature = featuresByLayer[layer]?.[featureIndex];
+        if (feature) severity.set(feature, worstSeverity(issues));
+      }
+    }
+    return severity;
+  }, [validationByLayer, featuresByLayer]);
+  const issueCounts = useMemo(() => {
+    const counts = { error: 0, warning: 0 };
+    for (const value of issueSeverity.values()) counts[value]++;
+    return counts;
+  }, [issueSeverity]);
+  const showIssuesOnMap = highlightIssues && isValidating;
+
+  const hiddenLayersKey = [...hiddenLayers].sort().join(",");
+  const mapFitKey = `${conversionId}:${hiddenLayersKey}`;
+  // Identifies everything the map's vector layer draws — data revision,
+  // visible layers and issue styling — so it remounts whenever any of them
+  // change, including after edits, deletes, undo and redo.
+  const mapVersion = `${history.revision}:${hiddenLayersKey}:${showIssuesOnMap ? JSON.stringify([layerSchemaIds, layerDuplicateKeys]) : ""}`;
+
+  function selectFeatures(features: GeoJSON.Feature[]) {
+    setSelectedFeatures(new Set(features));
+    toast(`Selected ${plural(features.length, "feature")}`, {
+      id: HISTORY_TOAST_ID,
+      action: { label: "Edit selected", onClick: openBulkEdit },
+    });
+  }
+
+  const clearFocusFeature = useCallback(() => setFocusFeature(null), []);
+
+  function showOnMap(feature: GeoJSON.Feature) {
+    const layer = groupNameOf(feature);
+    if (hiddenLayers.has(layer)) {
+      setHiddenLayers((prev) => {
+        const next = new Set(prev);
+        next.delete(layer);
+        return next;
+      });
+    }
+    setFocusFeature(feature);
+    setActiveTab("map");
+  }
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || isOwnUndoContext(event.target)) return;
+      const key = event.key.toLowerCase();
+      if (key === "z" && !event.shiftKey && history.undoLabel) {
+        event.preventDefault();
+        undoChange();
+      } else if ((key === "y" || (key === "z" && event.shiftKey)) && history.redoLabel) {
+        event.preventDefault();
+        redoChange();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
+  function commitFeatures(
+    label: string,
+    transform: (features: GeoJSON.Feature[]) => GeoJSON.Feature[],
+    { notify = true } = {},
+  ) {
+    history.commit(label, (prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        featureCollection: {
+          ...prev.featureCollection,
+          features: transform(prev.featureCollection.features),
+        },
+      };
+    });
+    if (notify) {
+      toast(label, {
+        id: HISTORY_TOAST_ID,
+        action: { label: "Undo", onClick: () => undoChange(label) },
+      });
+    }
+  }
+
+  // Selections hold feature object references; after undo/redo those may no
+  // longer be in the data, so the selection is dropped rather than left stale.
+  function undoChange(label = history.undoLabel) {
+    if (!label) return;
+    history.undo();
+    setSelectedFeatures(new Set());
+    toast(`Undone: ${label}`, {
+      id: HISTORY_TOAST_ID,
+      action: { label: "Redo", onClick: () => redoChange(label) },
+    });
+  }
+
+  function redoChange(label = history.redoLabel) {
+    if (!label) return;
+    history.redo();
+    setSelectedFeatures(new Set());
+    toast(`Redone: ${label}`, {
+      id: HISTORY_TOAST_ID,
+      action: { label: "Undo", onClick: () => undoChange(label) },
+    });
+  }
 
   function toggleLayer(layer: string) {
     setHiddenLayers((prev) => {
@@ -174,33 +373,36 @@ function Home() {
     target: GeoJSON.Feature,
     properties: Record<string, string | number | boolean | null>,
   ) {
-    setResult((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        featureCollection: {
-          ...prev.featureCollection,
-          features: prev.featureCollection.features.map((f) =>
-            f === target ? { ...f, properties } : f,
-          ),
-        },
-      };
+    commitFeatures(
+      "Edited feature properties",
+      (features) => features.map((f) => (f === target ? { ...f, properties } : f)),
+      { notify: false },
+    );
+  }
+
+  function deleteFeature(target: GeoJSON.Feature) {
+    commitFeatures("Deleted 1 feature", (features) => features.filter((f) => f !== target));
+    setSelectedFeatures((prev) => {
+      if (!prev.has(target)) return prev;
+      const next = new Set(prev);
+      next.delete(target);
+      return next;
     });
   }
 
-  function applyBulkEdit(updates: Map<GeoJSON.Feature, PropertyRecord>) {
-    setResult((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        featureCollection: {
-          ...prev.featureCollection,
-          features: prev.featureCollection.features.map((f) =>
-            updates.has(f) ? { ...f, properties: updates.get(f)! } : f,
-          ),
-        },
-      };
-    });
+  function applyBulkEdit(
+    updates: Map<GeoJSON.Feature, PropertyRecord>,
+    removals: Set<GeoJSON.Feature>,
+  ) {
+    const parts = [
+      removals.size > 0 && `Removed ${plural(removals.size, "feature")}`,
+      updates.size > 0 && `Edited ${plural(updates.size, "feature")}`,
+    ].filter(Boolean);
+    commitFeatures(parts.join(", "), (features) =>
+      features
+        .filter((f) => !removals.has(f))
+        .map((f) => (updates.has(f) ? { ...f, properties: updates.get(f)! } : f)),
+    );
     setSelectedFeatures(new Set());
     setBulkEditOpen(false);
   }
@@ -215,29 +417,25 @@ function Home() {
   }
 
   function applyPropertyRename(layer: string, renameMap: Record<string, string | null>) {
-    setResult((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        featureCollection: {
-          ...prev.featureCollection,
-          features: prev.featureCollection.features.map((f) => {
-            if (groupNameOf(f) !== layer) return f;
-            const renamed: GeoJSON.GeoJsonProperties = {};
-            for (const [key, value] of Object.entries(f.properties ?? {})) {
-              if (!(key in renameMap)) {
-                renamed[key] = value;
-                continue;
-              }
-              const target = renameMap[key];
-              if (target === null) continue;
-              renamed[target] = value;
+    const propertyCount = Object.keys(renameMap).length;
+    commitFeatures(
+      `Renamed or removed ${plural(propertyCount, "property")} on ${layer}`,
+      (features) =>
+        features.map((f) => {
+          if (groupNameOf(f) !== layer) return f;
+          const renamed: GeoJSON.GeoJsonProperties = {};
+          for (const [key, value] of Object.entries(f.properties ?? {})) {
+            if (!(key in renameMap)) {
+              renamed[key] = value;
+              continue;
             }
-            return { ...f, properties: renamed };
-          }),
-        },
-      };
-    });
+            const target = renameMap[key];
+            if (target === null) continue;
+            renamed[target] = value;
+          }
+          return { ...f, properties: renamed };
+        }),
+    );
   }
 
   function selectFiles(next: File[]) {
@@ -246,11 +444,11 @@ function Home() {
 
     setFiles(supported);
     setFileStatuses([]);
-    setResult(null);
+    history.reset(null);
     setStatus(rejectedCount > 0 && supported.length === 0 ? "error" : "idle");
     setError(
       rejectedCount > 0
-        ? `Skipped ${rejectedCount} unsupported file${rejectedCount === 1 ? "" : "s"} — only .dxf, .zip (Shapefile), .xlsx, and .geojson are supported.`
+        ? `Skipped ${rejectedCount} unsupported file${rejectedCount === 1 ? "" : "s"} — only .dxf, .zip (Shapefile), .xlsx, .geojson, and .kml/.kmz are supported.`
         : null,
     );
     setSourceCrs(DEFAULT_SOURCE_CRS);
@@ -298,32 +496,64 @@ function Home() {
 
     const isBatch = files.length > 1;
 
-    const outcomes = await Promise.all(
-      files.map(async (file, index) => {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("sourceCrs", sourceCrs);
+    const convertFile = async (
+      file: File,
+      index: number,
+      allowNoGeometry = false,
+    ): Promise<ConvertOutcome> => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("sourceCrs", sourceCrs);
+      if (allowNoGeometry) formData.append("allowNoGeometry", "true");
 
-        try {
-          const response = await fetch("/api/convert", { method: "POST", body: formData });
-          const data: unknown = await response.json();
-          if (!response.ok) {
-            const message = (data as { error?: string }).error ?? "Failed to convert this file.";
-            throw new Error(message);
+      const setFileStatus = (update: Omit<FileStatus, "file">) =>
+        setFileStatuses((prev) => prev.map((s, i) => (i === index ? { ...s, ...update } : s)));
+
+      try {
+        const response = await fetch("/api/convert", { method: "POST", body: formData });
+        const data: unknown = await response.json();
+        if (!response.ok) {
+          const failure = data as { error?: string; code?: string; recordCount?: number };
+          const message = failure.error ?? "Failed to convert this file.";
+          if (failure.code === NO_GEOMETRY_ERROR_CODE) {
+            setFileStatus({ status: "error", error: message });
+            return {
+              file,
+              noGeometry: { file, index, message, recordCount: failure.recordCount ?? 0 },
+            };
+          }
+          throw new Error(message);
+        }
+        setFileStatus({ status: "done" });
+        return { file, data: data as ConvertResponse };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to convert this file.";
+        setFileStatus({ status: "error", error: message });
+        return { file, error: message };
+      }
+    };
+
+    const outcomes = await Promise.all(files.map((file, index) => convertFile(file, index)));
+
+    const noGeometryFiles = outcomes.flatMap((o) => ("noGeometry" in o ? [o.noGeometry] : []));
+    if (noGeometryFiles.length > 0) {
+      const importAnyway = await new Promise<boolean>((resolve) =>
+        setNoGeometryPrompt({ files: noGeometryFiles, resolve }),
+      );
+      setNoGeometryPrompt(null);
+      await Promise.all(
+        noGeometryFiles.map(async ({ file, index, message }) => {
+          if (!importAnyway) {
+            outcomes[index] = { file, error: `${message} Not imported.` };
+            return;
           }
           setFileStatuses((prev) =>
-            prev.map((s, i) => (i === index ? { ...s, status: "done" } : s)),
+            prev.map((s, i) => (i === index ? { ...s, status: "pending", error: undefined } : s)),
           );
-          return { file, data: data as ConvertResponse };
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "Failed to convert this file.";
-          setFileStatuses((prev) =>
-            prev.map((s, i) => (i === index ? { ...s, status: "error", error: message } : s)),
-          );
-          return { file, error: message };
-        }
-      }),
-    );
+          outcomes[index] = await convertFile(file, index, true);
+        }),
+      );
+    }
 
     const features: GeoJSON.Feature[] = [];
     const warnings: string[] = [];
@@ -333,6 +563,8 @@ function Home() {
         warnings.push(`${outcome.file.name}: ${outcome.error}`);
         continue;
       }
+      // Every no-geometry outcome was resolved above; this only narrows the type.
+      if ("noGeometry" in outcome) continue;
       for (const feature of outcome.data.featureCollection.features) {
         features.push(
           isBatch && !feature.properties?.source
@@ -351,13 +583,15 @@ function Home() {
       return;
     }
 
-    setResult({ featureCollection: { type: "FeatureCollection", features }, warnings });
+    history.reset({ featureCollection: { type: "FeatureCollection", features }, warnings });
     setHiddenLayers(new Set());
+    setConversionId((id) => id + 1);
+    setFocusFeature(null);
     setLayerSchemaIds({});
+    setLayerDuplicateKeys({});
     setSelectedFeatures(new Set());
     setSearchQuery("");
     setPropertyFilters([]);
-    setVersion((v) => v + 1);
     setStatus("idle");
     setIsUploadCollapsed(true);
   }
@@ -370,7 +604,8 @@ function Home() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    const baseName = files[0]?.name.replace(/\.(dxf|zip|xlsx|geojson|json)$/i, "") ?? "converted";
+    const baseName =
+      files[0]?.name.replace(/\.(dxf|zip|xlsx|geojson|json|kml|kmz)$/i, "") ?? "converted";
     link.download =
       files.length > 1 ? `${baseName}-and-${files.length - 1}-more.geojson` : `${baseName}.geojson`;
     link.click();
@@ -424,9 +659,9 @@ function Home() {
             <CardHeader>
               <CardTitle>Convert files</CardTitle>
               <CardDescription>
-                Currently supported: DXF, Shapefile (.zip), Excel (.xlsx) → GeoJSON, plus existing
-                GeoJSON files for editing and schema validation. Select or drop multiple files, or a
-                whole folder, to convert them together.
+                Currently supported: DXF, Shapefile (.zip), Excel (.xlsx), KML/KMZ → GeoJSON, plus
+                existing GeoJSON files for editing and schema validation. Select or drop multiple
+                files, or a whole folder, to convert them together.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
@@ -434,7 +669,7 @@ function Home() {
                 <input
                   ref={inputRef}
                   type="file"
-                  accept=".dxf,.zip,.xlsx,.geojson,.json"
+                  accept=".dxf,.zip,.xlsx,.geojson,.json,.kml,.kmz"
                   multiple
                   className="hidden"
                   onChange={(e) => selectFiles([...(e.target.files ?? [])])}
@@ -462,8 +697,8 @@ function Home() {
                   <UploadCloud className="size-8 text-muted-foreground" />
                   <p className="text-sm">
                     <span className="font-medium">
-                      Drag and drop .dxf, .zip (Shapefile), .xlsx, or .geojson files (or a folder)
-                      here
+                      Drag and drop .dxf, .zip (Shapefile), .xlsx, .geojson, or .kml/.kmz files (or
+                      a folder) here
                     </span>
                     , or click to browse.
                   </p>
@@ -479,18 +714,18 @@ function Home() {
                 <label className="text-sm font-medium" htmlFor="source-crs">
                   Source coordinate system
                 </label>
-                <Select value={sourceCrs} onValueChange={setSourceCrs}>
-                  <SelectTrigger id="source-crs" className="w-full sm:w-100">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SUPPORTED_SOURCE_CRS.map((crs) => (
-                      <SelectItem key={crs.code} value={crs.code}>
-                        {crs.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  id="source-crs"
+                  className="w-full sm:w-100"
+                  value={sourceCrs}
+                  onValueChange={setSourceCrs}
+                  options={SUPPORTED_SOURCE_CRS.map((crs) => ({
+                    value: crs.code,
+                    label: crs.label,
+                    keywords: [crs.code],
+                  }))}
+                  searchPlaceholder="Search coordinate systems…"
+                />
                 <CrsDetectionHint
                   detection={crsDetection}
                   sourceCrs={sourceCrs}
@@ -501,7 +736,8 @@ function Home() {
                   DXF; for a Shapefile only if it has no .prj file; for Excel only if its geom
                   column (or coordinate columns) don&apos;t declare one; for GeoJSON only if it has
                   no &quot;crs&quot; member and its coordinates aren&apos;t lon/lat. The output
-                  GeoJSON is always in WGS 84 (EPSG:4326).
+                  GeoJSON is always in WGS 84 (EPSG:4326). KML is always WGS 84, so this setting
+                  doesn&apos;t apply to it.
                 </p>
               </div>
 
@@ -585,18 +821,85 @@ function Home() {
               {result.featureCollection.features.length === 1 ? "" : "s"}, reprojected to WGS 84
               (EPSG:4326).
             </CardDescription>
+            <CardAction className="flex gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!history.undoLabel}
+                title={
+                  history.undoLabel ? `Undo: ${history.undoLabel} (Ctrl+Z)` : "Nothing to undo"
+                }
+                onClick={() => undoChange()}
+              >
+                <Undo2 />
+                Undo
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!history.redoLabel}
+                title={
+                  history.redoLabel
+                    ? `Redo: ${history.redoLabel} (Ctrl+Shift+Z)`
+                    : "Nothing to redo"
+                }
+                onClick={() => redoChange()}
+              >
+                <Redo2 />
+                Redo
+              </Button>
+            </CardAction>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {layers.length > 1 && (
               <LayerLegend layers={layers} hiddenLayers={hiddenLayers} onToggle={toggleLayer} />
             )}
-            <Tabs defaultValue="map">
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList>
                 <TabsTrigger value="map">Map</TabsTrigger>
                 <TabsTrigger value="list">List</TabsTrigger>
                 <TabsTrigger value="validation">Validation</TabsTrigger>
               </TabsList>
-              <TabsContent value="map">
+              <TabsContent value="map" className="flex flex-col gap-2">
+                {isValidating && (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                    <label htmlFor="highlight-issues" className="flex items-center gap-2">
+                      <Checkbox
+                        id="highlight-issues"
+                        checked={highlightIssues}
+                        onCheckedChange={(checked) => setHighlightIssues(checked === true)}
+                      />
+                      Highlight validation issues
+                    </label>
+                    {showIssuesOnMap && (
+                      <>
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
+                          <span
+                            className="size-2.5 rounded-full"
+                            style={{ backgroundColor: ISSUE_COLORS.error }}
+                          />
+                          {plural(issueCounts.error, "feature")} with errors
+                        </span>
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
+                          <span
+                            className="size-2.5 rounded-full"
+                            style={{ backgroundColor: ISSUE_COLORS.warning }}
+                          />
+                          {issueCounts.warning} with warnings only
+                        </span>
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
+                          <span
+                            className="size-2.5 rounded-full"
+                            style={{ backgroundColor: ISSUE_COLORS.ok }}
+                          />
+                          no issues
+                        </span>
+                      </>
+                    )}
+                  </div>
+                )}
                 <div className="h-125 overflow-hidden rounded-lg border">
                   <ClientOnly
                     fallback={
@@ -605,9 +908,23 @@ function Home() {
                       </div>
                     }
                   >
-                    <GeoJsonMap featureCollection={visibleFeatureCollection} version={mapVersion} />
+                    <GeoJsonMap
+                      featureCollection={visibleFeatureCollection}
+                      version={mapVersion}
+                      fitKey={mapFitKey}
+                      issueSeverity={showIssuesOnMap ? issueSeverity : null}
+                      focusFeature={focusFeature}
+                      onFocusHandled={clearFocusFeature}
+                    />
                   </ClientOnly>
                 </div>
+                {withoutGeometryCount > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    {withoutGeometryCount === visibleFeatureCollection.features.length
+                      ? "None of the features have a geometry, so there is nothing to show on the map — see the List tab."
+                      : `${plural(withoutGeometryCount, "feature")} without a geometry ${withoutGeometryCount === 1 ? "isn't" : "aren't"} shown on the map — see the List tab.`}
+                  </p>
+                )}
               </TabsContent>
               <TabsContent value="list" className="flex flex-col gap-2">
                 <FeatureFilterBar
@@ -652,10 +969,18 @@ function Home() {
               </TabsContent>
               <TabsContent value="validation">
                 <SchemaValidationPanel
-                  featureCollection={result.featureCollection}
                   layers={layers}
+                  featuresByLayer={featuresByLayer}
+                  validationByLayer={validationByLayer}
                   layerSchemaIds={layerSchemaIds}
                   onLayerSchemaChange={setLayerSchema}
+                  layerDuplicateKeys={layerDuplicateKeys}
+                  onLayerDuplicateKeyChange={(layer, key) =>
+                    setLayerDuplicateKeys((prev) => ({ ...prev, [layer]: key }))
+                  }
+                  onDeleteFeature={deleteFeature}
+                  onSelectFeatures={selectFeatures}
+                  onShowOnMap={showOnMap}
                   onEditFeature={openEditDialog}
                   onApplyRename={applyPropertyRename}
                 />
@@ -677,6 +1002,46 @@ function Home() {
           setEditingFeature(null);
         }}
       />
+      <Dialog
+        open={noGeometryPrompt !== null}
+        onOpenChange={(open) => {
+          if (!open) noGeometryPrompt?.resolve(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>No geometry identified</DialogTitle>
+            <DialogDescription>
+              {noGeometryPrompt?.files.length === 1
+                ? "No geometry could be identified in this file."
+                : `No geometry could be identified in ${noGeometryPrompt?.files.length ?? 0} files.`}{" "}
+              Import anyway with only the properties available? The records won&apos;t appear on the
+              map, but can be listed, edited, validated and exported.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="flex flex-col gap-2 text-sm">
+            {noGeometryPrompt?.files.map((f) => (
+              <li key={f.index}>
+                <span className="font-medium">{f.file.name}</span>
+                <span className="text-muted-foreground"> — {plural(f.recordCount, "record")}</span>
+                <p className="text-muted-foreground">{f.message}</p>
+              </li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => noGeometryPrompt?.resolve(false)}
+            >
+              Skip
+            </Button>
+            <Button type="button" onClick={() => noGeometryPrompt?.resolve(true)}>
+              Import properties only
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <BulkEditDialog
         key={`bulk-edit-${bulkEditSessionId}`}
         open={bulkEditOpen}

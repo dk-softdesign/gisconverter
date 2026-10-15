@@ -5,6 +5,8 @@ import { DEFAULT_SOURCE_CRS, isSupportedSourceCrs } from "#/lib/crs";
 import { convertDxfToGeoJson, type DxfConversionResult } from "#/lib/dxf-to-geojson";
 import { convertExcelToGeoJson, type ExcelConversionResult } from "#/lib/excel-to-geojson";
 import { convertGeoJsonToGeoJson, type GeoJsonConversionResult } from "#/lib/geojson-to-geojson";
+import { convertKmlToGeoJson, type KmlConversionResult } from "#/lib/kml-to-geojson";
+import { NO_GEOMETRY_ERROR_CODE, NoGeometryError } from "#/lib/no-geometry";
 import {
   convertShapefileToGeoJson,
   type ShapefileConversionResult,
@@ -16,7 +18,8 @@ type ConversionResult =
   | DxfConversionResult
   | ShapefileConversionResult
   | ExcelConversionResult
-  | GeoJsonConversionResult;
+  | GeoJsonConversionResult
+  | KmlConversionResult;
 
 function jsonResponse(result: ConversionResult) {
   return Response.json(result, {
@@ -39,11 +42,12 @@ export const Route = createFileRoute("/api/convert")({
         const isZip = fileName.endsWith(".zip");
         const isExcel = fileName.endsWith(".xlsx");
         const isGeoJson = fileName.endsWith(".geojson") || fileName.endsWith(".json");
-        if (!isDxf && !isZip && !isExcel && !isGeoJson) {
+        const isKml = fileName.endsWith(".kml") || fileName.endsWith(".kmz");
+        if (!isDxf && !isZip && !isExcel && !isGeoJson && !isKml) {
           return Response.json(
             {
               error:
-                "Only .dxf, .zip (Shapefile), .xlsx, and .geojson files are supported right now.",
+                "Only .dxf, .zip (Shapefile), .xlsx, .geojson, and .kml/.kmz files are supported right now.",
             },
             { status: 400 },
           );
@@ -62,21 +66,42 @@ export const Route = createFileRoute("/api/convert")({
           );
         }
 
+        // Set when the user has agreed to import a source with no geometry
+        // as properties-only features (see NoGeometryError).
+        const allowNoGeometry = formData.get("allowNoGeometry") === "true";
+
         try {
           if (isDxf) {
             const text = await file.text();
             return jsonResponse(convertDxfToGeoJson(text, crs));
           }
           if (isGeoJson) {
-            return jsonResponse(convertGeoJsonToGeoJson(await file.text(), crs));
+            return jsonResponse(convertGeoJsonToGeoJson(await file.text(), crs, allowNoGeometry));
+          }
+          if (isKml) {
+            return jsonResponse(
+              await convertKmlToGeoJson(await file.arrayBuffer(), file.name, allowNoGeometry),
+            );
           }
           if (isZip) {
             const buffer = await file.arrayBuffer();
-            return jsonResponse(await convertShapefileToGeoJson(buffer, crs, file.name));
+            return jsonResponse(
+              await convertShapefileToGeoJson(buffer, crs, file.name, allowNoGeometry),
+            );
           }
           const buffer = await file.arrayBuffer();
-          return jsonResponse(await convertExcelToGeoJson(buffer, crs));
+          return jsonResponse(await convertExcelToGeoJson(buffer, crs, allowNoGeometry));
         } catch (error) {
+          if (error instanceof NoGeometryError) {
+            return Response.json(
+              {
+                error: error.message,
+                code: NO_GEOMETRY_ERROR_CODE,
+                recordCount: error.recordCount,
+              },
+              { status: 422 },
+            );
+          }
           return Response.json(
             { error: error instanceof Error ? error.message : "Failed to convert this file." },
             { status: 422 },

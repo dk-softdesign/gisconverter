@@ -3,6 +3,7 @@ import addFormats from "ajv-formats";
 import type { ErrorObject, ValidateFunction } from "ajv";
 
 import type { GisSchema } from "#/lib/gis-schemas";
+import { propertyValueToInputString } from "#/lib/property-value";
 
 // Properties the converters themselves attach (grouping/legend metadata),
 // never part of a target schema — never worth flagging as "unrecognized" or
@@ -33,6 +34,7 @@ export type ValidationIssueKind =
   | "format"
   | "conditional"
   | "unrecognized"
+  | "duplicate"
   | "other";
 
 export interface ValidationIssue {
@@ -136,6 +138,129 @@ export function validateFeatureCollection(
   });
 
   return results;
+}
+
+const DUPLICATE_PEERS_SHOWN = 5;
+
+// Sentinel duplicate key meaning "compare geometries" rather than a property.
+export const GEOMETRY_DUPLICATE_KEY = "__geometry__";
+
+// Coordinates are WGS 84 degrees; 7 decimals is roughly 1 cm, enough to absorb
+// reprojection/float noise while keeping genuinely different vertices apart.
+const GEOMETRY_DUPLICATE_DECIMALS = 7;
+const GEOMETRY_DUPLICATE_SCALE = 10 ** GEOMETRY_DUPLICATE_DECIMALS;
+
+// Geometries are compared by type and coordinates rounded to
+// GEOMETRY_DUPLICATE_DECIMALS; features without a geometry are skipped, like
+// empty property values.
+function geometryText(geometry: GeoJSON.Geometry | null): string {
+  if (!geometry) return "";
+  return JSON.stringify(
+    geometry.type === "GeometryCollection"
+      ? { type: geometry.type, geometries: geometry.geometries.map(geometryText) }
+      : { type: geometry.type, coordinates: geometry.coordinates },
+    (_, value) =>
+      typeof value === "number"
+        ? Math.round(value * GEOMETRY_DUPLICATE_SCALE) / GEOMETRY_DUPLICATE_SCALE
+        : value,
+  );
+}
+
+export interface DuplicateGroup {
+  // The shared value as compared (the trimmed property text, or the rounded
+  // geometry for GEOMETRY_DUPLICATE_KEY).
+  value: string;
+  // Feature indexes into the checked list, in feature order; always 2+.
+  indexes: number[];
+}
+
+// Groups features sharing the same `key` value. Values are compared as trimmed
+// strings (so 42 and "42" collide); empty values are skipped — a missing value
+// is a "required" problem, not a duplicate. With GEOMETRY_DUPLICATE_KEY,
+// geometries are compared instead.
+export function findDuplicateGroups(features: GeoJSON.Feature[], key: string): DuplicateGroup[] {
+  const isGeometry = key === GEOMETRY_DUPLICATE_KEY;
+  const indexesByValue = new Map<string, number[]>();
+  features.forEach((feature, index) => {
+    const text = isGeometry
+      ? geometryText(feature.geometry)
+      : propertyValueToInputString(feature.properties?.[key]).trim();
+    if (!text) return;
+    const indexes = indexesByValue.get(text);
+    if (indexes) indexes.push(index);
+    else indexesByValue.set(text, [index]);
+  });
+  return [...indexesByValue]
+    .filter(([, indexes]) => indexes.length > 1)
+    .map(([value, indexes]) => ({ value, indexes }));
+}
+
+// Flags every feature that is part of a duplicate group (see findDuplicateGroups).
+export function findDuplicates(
+  features: GeoJSON.Feature[],
+  key: string,
+): FeatureValidationResult[] {
+  const isGeometry = key === GEOMETRY_DUPLICATE_KEY;
+  const results: FeatureValidationResult[] = [];
+  for (const { value, indexes } of findDuplicateGroups(features, key)) {
+    for (const featureIndex of indexes) {
+      const peers = indexes.filter((i) => i !== featureIndex).map((i) => `#${i + 1}`);
+      const shown = peers.slice(0, DUPLICATE_PEERS_SHOWN).join(", ");
+      const more =
+        peers.length > DUPLICATE_PEERS_SHOWN
+          ? ` and ${peers.length - DUPLICATE_PEERS_SHOWN} more`
+          : "";
+      results.push({
+        featureIndex,
+        issues: [
+          {
+            kind: "duplicate",
+            propertyKey: isGeometry ? "geometry" : key,
+            message: isGeometry
+              ? `Geometry matches feature ${shown}${more} (within ~1 cm).`
+              : `"${key}" value ${JSON.stringify(value)} is also used by feature ${shown}${more}.`,
+            severity: "error",
+          },
+        ],
+      });
+    }
+  }
+  return results;
+}
+
+// Combines per-feature results from several checks into one entry per
+// feature, ordered by feature index.
+export function mergeValidationResults(
+  ...sources: FeatureValidationResult[][]
+): FeatureValidationResult[] {
+  const byIndex = new Map<number, ValidationIssue[]>();
+  for (const results of sources) {
+    for (const { featureIndex, issues } of results) {
+      byIndex.set(featureIndex, [...(byIndex.get(featureIndex) ?? []), ...issues]);
+    }
+  }
+  return [...byIndex]
+    .sort(([a], [b]) => a - b)
+    .map(([featureIndex, issues]) => ({ featureIndex, issues }));
+}
+
+// Everything checked for one layer: the schema (if any) plus the duplicate
+// check (if a property is picked). Feature indexes refer to `features`.
+export function validateLayer(
+  features: GeoJSON.Feature[],
+  schema: GisSchema | undefined,
+  duplicateKey: string | null,
+): FeatureValidationResult[] {
+  return mergeValidationResults(
+    schema ? validateFeatureCollection({ type: "FeatureCollection", features }, schema) : [],
+    duplicateKey ? findDuplicates(features, duplicateKey) : [],
+  );
+}
+
+export type IssueSeverity = ValidationIssue["severity"];
+
+export function worstSeverity(issues: ValidationIssue[]): IssueSeverity {
+  return issues.some((issue) => issue.severity === "error") ? "error" : "warning";
 }
 
 export function summarizeValidation(
