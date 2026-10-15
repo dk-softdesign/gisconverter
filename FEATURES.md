@@ -75,7 +75,8 @@ What GIS Converter does today. For things we might build next, see [IDEAS.md](./
   - **Custom JS**: a small script that returns the new properties. Includes predefined scripts.
   - **Remove**: delete features where a property is empty, not empty, equals, doesn't equal,
     contains or matches a pattern, or where it's duplicated (keep the first, or flag all).
-- **Saved presets**: Find & replace patterns and scripts can be saved by name in the browser.
+- **Saved presets**: Find & replace patterns and scripts can be saved by name. They're saved
+  to your account, so they follow you to any browser.
 - **Ask Claude**: describe a cleanup in plain words and Claude fills in the pattern or script
   for you to review. This needs `ANTHROPIC_API_KEY` on the server.
 - **Undo/redo**: every change (edits, bulk edits, deletes, property renames) can be undone
@@ -112,7 +113,9 @@ What GIS Converter does today. For things we might build next, see [IDEAS.md](./
 
 ## Settings
 
-Opened from the gear in the header. Changes apply at once and are saved in the browser.
+Opened from the gear in the header. Changes apply at once and are saved to your account, so
+they follow you to any browser and each member has their own. (Settings saved in a browser
+before accounts existed are moved to the first account that signs in there.)
 
 - **Appearance**: theme (light / dark / system).
 - **Conversion**: default source coordinate system.

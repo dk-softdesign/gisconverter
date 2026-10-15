@@ -30,6 +30,16 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_user_id ON sessions(user_id);
+
+-- Per-member preferences and saved work (settings, bulk-edit presets,
+-- Match property names progress), stored as JSON by key.
+CREATE TABLE IF NOT EXISTS user_data (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
 `;
 
 let db: DatabaseSync | undefined;

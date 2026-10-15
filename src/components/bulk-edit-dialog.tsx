@@ -16,7 +16,9 @@ import { SearchableSelect } from "#/components/searchable-select";
 import { Input } from "#/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { Textarea } from "#/components/ui/textarea";
+import type { JsonValue } from "#/lib/auth-types";
 import { PREDEFINED_SCRIPTS } from "#/lib/predefined-scripts";
+import { useSetUserData, useUserData } from "#/lib/user-data";
 import {
   coercePropertyValue,
   propertyValueToInputString,
@@ -25,7 +27,6 @@ import {
 
 const ALL_KEYS_SCOPE = "*";
 const PREVIEW_SAMPLE_SIZE = 8;
-const SAVED_PRESETS_KEY = "gisconverter:bulk-edit-presets";
 const CLAUDE_SAMPLE_SIZE = 20;
 
 interface BulkEditDialogProps {
@@ -93,23 +94,16 @@ interface SavedPresets {
   script: Record<string, string>;
 }
 
-function loadSavedPresets(): SavedPresets {
-  try {
-    const raw = localStorage.getItem(SAVED_PRESETS_KEY);
-    if (!raw) return { replace: {}, script: {} };
-    const parsed = JSON.parse(raw) as Partial<SavedPresets>;
-    return { replace: parsed.replace ?? {}, script: parsed.script ?? {} };
-  } catch {
-    return { replace: {}, script: {} };
-  }
-}
-
-function storeSavedPresets(presets: SavedPresets) {
-  try {
-    localStorage.setItem(SAVED_PRESETS_KEY, JSON.stringify(presets));
-  } catch {
-    // localStorage unavailable (private browsing, etc.) — presets just won't persist.
-  }
+// Saved per member on the server (user_data "presets"), so they follow the
+// member to any browser.
+function parsePresets(raw: JsonValue): SavedPresets {
+  const stored = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const isRecord = (value: unknown): value is Record<string, never> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+  return {
+    replace: isRecord(stored.replace) ? (stored.replace as Record<string, ReplacePreset>) : {},
+    script: isRecord(stored.script) ? (stored.script as Record<string, string>) : {},
+  };
 }
 
 function applySetValue(before: PropertyRecord, key: string, value: PropertyRecord[string]) {
@@ -219,11 +213,12 @@ export function BulkEditDialog({
   const removeNeedsValue =
     REMOVE_CONDITIONS.find((c) => c.value === removeCondition)?.needsValue ?? false;
 
-  const [savedPresets, setSavedPresets] = useState(loadSavedPresets);
+  const rawPresets = useUserData("presets");
+  const savedPresets = useMemo(() => parsePresets(rawPresets), [rawPresets]);
+  const setUserData = useSetUserData();
 
   function updateSavedPresets(next: SavedPresets) {
-    setSavedPresets(next);
-    storeSavedPresets(next);
+    setUserData("presets", () => next as unknown as JsonValue);
   }
 
   function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {

@@ -1,7 +1,8 @@
 import { useId, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Monitor, Moon, RotateCcw, Sun } from "lucide-react";
 
-import { SAVED_MAPPING_PREFIX } from "#/components/property-mapping-dialog";
 import { SearchableSelect } from "#/components/searchable-select";
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
@@ -12,10 +13,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
+import { clearUserDataFn, countUserDataFn } from "#/lib/auth-functions";
 import { SUPPORTED_SOURCE_CRS } from "#/lib/crs";
 import {
-  resetSettings,
-  updateSettings,
+  useResetSettings,
+  useUpdateSettings,
   useSettings,
   type Basemap,
   type PreviewTab,
@@ -44,7 +46,7 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-// Changes apply (and are saved to this browser) immediately — there's no
+// Changes apply (and are saved to the member's account) immediately — there's no
 // save button to forget.
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   return (
@@ -53,7 +55,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            Changes apply right away and are saved in this browser.
+            Changes apply right away and are saved to your account, so they follow you to any
+            browser.
           </DialogDescription>
         </DialogHeader>
         <SettingsBody />
@@ -64,6 +67,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
 function SettingsBody() {
   const settings = useSettings();
+  const updateSettings = useUpdateSettings();
 
   return (
     <div className="thin-scrollbar -mx-6 flex min-h-0 flex-col gap-6 overflow-y-auto px-6">
@@ -284,25 +288,25 @@ function Segmented<T extends string>({
   );
 }
 
-function savedMappingKeys(): string[] {
-  try {
-    return Object.keys(localStorage).filter((key) => key.startsWith(SAVED_MAPPING_PREFIX));
-  } catch {
-    return [];
-  }
-}
+const MAPPING_PREFIX = "mapping:";
 
 function SavedMappingsSetting() {
-  // The dialog body mounts fresh on each open, so this is current enough.
-  const [count, setCount] = useState(() => savedMappingKeys().length);
+  const queryClient = useQueryClient();
+  const queryKey = ["user-data-count", MAPPING_PREFIX];
+  const { data } = useQuery({
+    queryKey,
+    queryFn: () => countUserDataFn({ data: { prefix: MAPPING_PREFIX } }),
+    staleTime: 0,
+  });
+  const count = data?.count ?? 0;
 
-  function clear() {
+  async function clear() {
     try {
-      for (const key of savedMappingKeys()) localStorage.removeItem(key);
+      await clearUserDataFn({ data: { prefix: MAPPING_PREFIX } });
     } catch {
-      // localStorage unavailable — nothing to clear.
+      toast.error("Couldn't clear saved progress — try again.");
     }
-    setCount(savedMappingKeys().length);
+    await queryClient.invalidateQueries({ queryKey });
   }
 
   return (
@@ -332,6 +336,7 @@ function SavedMappingsSetting() {
 // resets.
 function ResetSettingsButton() {
   const [armed, setArmed] = useState(false);
+  const resetSettings = useResetSettings();
 
   if (!armed) {
     return (

@@ -6,6 +6,7 @@ import type { AuthState, Member, Role, SessionUser } from "#/lib/auth-types";
 // module is imported lazily inside each handler so node:sqlite/node:crypto
 // never end up in the client bundle.
 const auth = () => import("#/lib/server/auth");
+const userData = () => import("#/lib/server/user-data");
 
 // A failure the user should see as-is (wrong password, last admin, …).
 // Anything else stays a generic server error.
@@ -81,7 +82,18 @@ const requireAdmin = createMiddleware({ type: "function" })
 export const getAuthState = createServerFn({ method: "GET" }).handler(
   async (): Promise<AuthState> => {
     const { getCurrentUser, hasUsers } = await auth();
-    return { user: getCurrentUser(), needsSetup: !hasUsers() };
+    const user = getCurrentUser();
+    if (!user)
+      return { user, userData: { settings: null, presets: null }, needsSetup: !hasUsers() };
+    const { getUserData } = await userData();
+    return {
+      user,
+      userData: {
+        settings: getUserData(user.id, "settings"),
+        presets: getUserData(user.id, "presets"),
+      },
+      needsSetup: false,
+    };
   },
 );
 
@@ -208,3 +220,66 @@ export const deleteMemberFn = createServerFn({ method: "POST" })
       return {};
     }),
   );
+
+// ---- per-member data (settings, presets, mapping progress) --------------
+
+async function dataKey(value: unknown): Promise<string> {
+  const key = text(value, "Key", 300);
+  if (!(await userData()).isAllowedKey(key)) throw new TypeError("Unknown data key.");
+  return key;
+}
+
+function prefix(value: unknown): string {
+  if (value !== "mapping:") throw new TypeError("Unknown data prefix.");
+  return value;
+}
+
+export const getUserDataFn = createServerFn({ method: "POST" })
+  .middleware([requireUser])
+  .validator((data: unknown) => ({ key: record(data).key }))
+  .handler(async ({ data, context }) => {
+    const key = await dataKey(data.key);
+    return { value: (await userData()).getUserData(context.user.id, key) };
+  });
+
+export const setUserDataFn = createServerFn({ method: "POST" })
+  .middleware([requireUser])
+  .validator((data: unknown) => {
+    const input = record(data);
+    return { key: input.key, value: input.value };
+  })
+  .handler(({ data, context }) =>
+    attempt(async () => {
+      const key = await dataKey(data.key);
+      (await userData()).setUserData(context.user.id, key, data.value);
+      return {};
+    }),
+  );
+
+export const countUserDataFn = createServerFn({ method: "POST" })
+  .middleware([requireUser])
+  .validator((data: unknown) => ({ prefix: prefix(record(data).prefix) }))
+  .handler(async ({ data, context }) => ({
+    count: (await userData()).countUserDataWithPrefix(context.user.id, data.prefix),
+  }));
+
+export const clearUserDataFn = createServerFn({ method: "POST" })
+  .middleware([requireUser])
+  .validator((data: unknown) => ({ prefix: prefix(record(data).prefix) }))
+  .handler(async ({ data, context }) => {
+    (await userData()).deleteUserDataWithPrefix(context.user.id, data.prefix);
+  });
+
+// Copies what used to be stored in this browser onto the member's account
+// (keys they already have win), then returns the preloaded data afresh.
+export const importBrowserDataFn = createServerFn({ method: "POST" })
+  .middleware([requireUser])
+  .validator((data: unknown) => ({ entries: record(record(data).entries) }))
+  .handler(async ({ data, context }) => {
+    const { getUserData, importMissingUserData } = await userData();
+    importMissingUserData(context.user.id, data.entries);
+    return {
+      settings: getUserData(context.user.id, "settings"),
+      presets: getUserData(context.user.id, "presets"),
+    };
+  });

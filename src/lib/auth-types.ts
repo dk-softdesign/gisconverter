@@ -20,8 +20,25 @@ export interface Member extends SessionUser {
   lastLoginAt: number | null;
 }
 
+// Per-member data that comes with the page (raw JSON as stored; each
+// consumer validates its own shape). Match property names progress is
+// fetched separately, when that dialog opens.
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export interface PreloadedUserData {
+  settings: JsonValue;
+  presets: JsonValue;
+}
+
 export interface AuthState {
   user: SessionUser | null;
+  userData: PreloadedUserData;
   // True until the first admin account has been created.
   needsSetup: boolean;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Eye, ListChecks, Save, Search } from "lucide-react";
 
 import { SearchableSelect } from "#/components/searchable-select";
@@ -25,6 +26,8 @@ import type { GisSchema } from "#/lib/gis-schemas";
 import { suggestPropertyMatches, type MatchConfidence } from "#/lib/property-matching";
 import { propertyValueToInputString } from "#/lib/property-value";
 import { cn } from "#/lib/utils";
+import { setUserDataFn } from "#/lib/auth-functions";
+import type { JsonValue } from "#/lib/auth-types";
 
 interface PropertyMappingDialogProps {
   open: boolean;
@@ -36,34 +39,33 @@ interface PropertyMappingDialogProps {
   sourceKeys: string[];
   features: GeoJSON.Feature[];
   onApply: (renameMap: Record<string, string | null>) => void;
+  // Progress saved earlier for this layer+schema, fetched before opening.
+  saved: SavedMapping | null;
 }
 
 const SKIP_VALUE = "__skip__";
 const REMOVE_VALUE = "__remove__";
 const VALUE_SAMPLE_LIMIT = 8;
-export const SAVED_MAPPING_PREFIX = "gisconverter:propertyMapping:";
-
-interface SavedMapping {
+export interface SavedMapping {
   selections: Record<string, string>;
   reviewed: string[];
 }
 
-// Just one slot per layer+schema, overwritten on every explicit save — a
-// resume point, not a version history.
-function savedMappingKey(schemaId: string, layerLabel: string): string {
-  return `${SAVED_MAPPING_PREFIX}${schemaId}:${layerLabel}`;
+// Saved per member on the server (user_data), one slot per layer+schema,
+// overwritten on every explicit save — a resume point, not a version history.
+export function savedMappingKey(schemaId: string, layerLabel: string): string {
+  return `mapping:${schemaId}:${layerLabel}`;
 }
 
-function loadSavedMapping(key: string): SavedMapping | null {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<SavedMapping>;
-    if (!parsed.selections || !Array.isArray(parsed.reviewed)) return null;
-    return { selections: parsed.selections, reviewed: parsed.reviewed };
-  } catch {
-    return null;
-  }
+export function parseSavedMapping(raw: JsonValue): SavedMapping | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const { selections, reviewed } = raw;
+  if (!selections || typeof selections !== "object" || Array.isArray(selections)) return null;
+  if (!Array.isArray(reviewed)) return null;
+  return {
+    selections: selections as Record<string, string>,
+    reviewed: reviewed.filter((key): key is string => typeof key === "string"),
+  };
 }
 
 const CONFIDENCE_LABEL: Record<MatchConfidence, string> = {
@@ -101,6 +103,7 @@ export function PropertyMappingDialog({
   sourceKeys,
   features,
   onApply,
+  saved,
 }: PropertyMappingDialogProps) {
   const featureCount = features.length;
   const storageKey = savedMappingKey(schemaId, layerLabel);
@@ -117,7 +120,6 @@ export function PropertyMappingDialog({
     const defaults = Object.fromEntries(
       rows.map((row) => [row.sourceKey, row.targetKey ?? SKIP_VALUE]),
     );
-    const saved = loadSavedMapping(storageKey);
     if (!saved) return defaults;
     for (const row of rows) {
       if (row.sourceKey in saved.selections)
@@ -129,13 +131,12 @@ export function PropertyMappingDialog({
   // Purely a manual progress aid while working through a long property list —
   // not sent to onApply, and doesn't affect what gets renamed or removed.
   const [reviewed, setReviewed] = useState<Set<string>>(() => {
-    const saved = loadSavedMapping(storageKey);
     if (!saved) return new Set();
     const rowKeys = new Set(rows.map((row) => row.sourceKey));
     return new Set(saved.reviewed.filter((key) => rowKeys.has(key)));
   });
 
-  const [restoredFromSave] = useState(() => loadSavedMapping(storageKey) !== null);
+  const restoredFromSave = saved !== null;
   const [justSaved, setJustSaved] = useState(false);
 
   useEffect(() => {
@@ -144,13 +145,14 @@ export function PropertyMappingDialog({
     return () => clearTimeout(timer);
   }, [justSaved]);
 
-  function handleSaveProgress() {
+  async function handleSaveProgress() {
+    const payload: SavedMapping = { selections, reviewed: [...reviewed] };
     try {
-      const payload: SavedMapping = { selections, reviewed: [...reviewed] };
-      localStorage.setItem(storageKey, JSON.stringify(payload));
-      setJustSaved(true);
+      const result = await setUserDataFn({ data: { key: storageKey, value: { ...payload } } });
+      if (result.ok) setJustSaved(true);
+      else toast.error(`Couldn't save progress: ${result.error}`);
     } catch {
-      // localStorage unavailable (private browsing, etc.) — nothing to do.
+      toast.error("Couldn't save progress — check your connection.");
     }
   }
 
@@ -227,11 +229,9 @@ export function PropertyMappingDialog({
       if (targetKey === SKIP_VALUE) continue;
       renameMap[sourceKey] = targetKey === REMOVE_VALUE ? null : targetKey;
     }
-    try {
-      localStorage.removeItem(storageKey);
-    } catch {
-      // localStorage unavailable — nothing to do.
-    }
+    // Done with this mapping, so its saved progress goes. Best effort: a
+    // leftover draft is harmless and can be cleared in Settings.
+    setUserDataFn({ data: { key: storageKey, value: null } }).catch(() => {});
     onApply(renameMap);
   }
 

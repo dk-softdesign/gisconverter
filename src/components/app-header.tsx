@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ClientOnly, Link } from "@tanstack/react-router";
 import {
   ChevronDown,
+  ScrollText,
   Globe,
   KeyRound,
   LogOut,
@@ -10,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { ChangePasswordDialog } from "#/components/change-password-dialog";
+import { ChangelogDialog } from "#/components/changelog-dialog";
 import { SettingsDialog } from "#/components/settings-dialog";
 import { ThemeToggle } from "#/components/theme-toggle";
 import { Button } from "#/components/ui/button";
@@ -25,11 +27,12 @@ const HEADER_BUTTON_CLASS =
 // toggle.
 export function AppHeader({ user }: { user: SessionUser | null }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [changelogOpen, setChangelogOpen] = useState(false);
 
   return (
     // Deliberately dark in both themes, so it stands apart from the page.
     <header className="border-b border-white/10 bg-zinc-900 text-zinc-50 shadow-md">
-      <div className="flex h-14 items-center justify-between gap-4 px-8">
+      <div className="flex h-14 items-center justify-between gap-3 px-4 sm:px-8">
         {/* `!`: the global `a` colour in styles.css isn't in a layer, so it beats utilities. */}
         <Link to="/" className="flex min-w-0 items-center gap-3 text-zinc-50! no-underline">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-500 text-white">
@@ -37,13 +40,27 @@ export function AppHeader({ user }: { user: SessionUser | null }) {
           </span>
           {/* Two lines within the fixed h-14 — the Preview card's height relies on it. */}
           <div className="flex min-w-0 flex-col">
-            <h1 className="text-lg leading-tight font-semibold tracking-tight">GIS Converter</h1>
-            <p className="truncate text-xs leading-tight text-zinc-400">
+            <h1 className="truncate text-lg leading-tight font-semibold tracking-tight">
+              GIS Converter
+            </h1>
+            <p className="hidden truncate text-xs leading-tight text-zinc-400 sm:block">
               Charting every coordinate: Advanced conversion for the GIS-savvy captain
             </p>
           </div>
         </Link>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
+          {user && (
+            <Button
+              type="button"
+              variant="outline"
+              className={`${HEADER_BUTTON_CLASS} px-2.5 sm:px-3`}
+              onClick={() => setChangelogOpen(true)}
+              title="Changelog"
+            >
+              <ScrollText className="size-4" />
+              <span className="hidden sm:inline">Changelog</span>
+            </Button>
+          )}
           <ClientOnly>
             <ThemeToggle className={HEADER_BUTTON_CLASS} />
           </ClientOnly>
@@ -62,6 +79,7 @@ export function AppHeader({ user }: { user: SessionUser | null }) {
               </Button>
               <UserMenu user={user} />
               <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+              <ChangelogDialog open={changelogOpen} onOpenChange={setChangelogOpen} />
             </>
           )}
         </div>

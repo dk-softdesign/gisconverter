@@ -12,13 +12,8 @@ import { TanStackDevtools } from "@tanstack/react-devtools";
 import { Button } from "#/components/ui/button";
 import { Toaster } from "#/components/ui/sonner";
 import { authQueryOptions } from "#/lib/auth-query";
-import {
-  getSettings,
-  resolveTheme,
-  SETTINGS_STORAGE_KEY,
-  subscribeToColorScheme,
-  subscribeToSettings,
-} from "#/lib/settings";
+import { BrowserDataMigration } from "#/components/browser-data-migration";
+import { useSettings } from "#/lib/settings";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 
 import appCss from "../styles.css?url";
@@ -71,28 +66,30 @@ function NotFound() {
   );
 }
 
-// The inline script above sets the initial theme before first paint; this
-// keeps it in step afterwards (settings changes, OS theme changes under
-// "System"). Reads the store directly rather than through useSettings, which
-// reports the defaults during hydration and would briefly undo a dark theme.
+// The inline script in RootDocument sets the initial theme before first
+// paint; this keeps it in step afterwards (settings changes, and OS theme
+// changes under "System"). The OS preference is read inside the effect rather
+// than via useResolvedTheme, whose hydration-time default would briefly undo
+// a dark theme.
 function ThemeSync() {
+  const { theme } = useSettings();
   useEffect(() => {
-    function apply() {
-      const dark = resolveTheme(getSettings().theme) === "dark";
+    const query = matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const dark = theme === "dark" || (theme === "system" && query.matches);
       document.documentElement.classList.toggle("dark", dark);
-    }
-    apply();
-    const unsubscribeSettings = subscribeToSettings(apply);
-    const unsubscribeColorScheme = subscribeToColorScheme(apply);
-    return () => {
-      unsubscribeSettings();
-      unsubscribeColorScheme();
     };
-  }, []);
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, [theme]);
   return null;
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  // The member's theme comes with the page, so the script can apply it
+  // before anything renders — no flash, and nothing kept in the browser.
+  const { theme } = useSettings();
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -100,8 +97,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <ScriptOnce>
           {`(function () {
             try {
-              var settings = JSON.parse(localStorage.getItem('${SETTINGS_STORAGE_KEY}') || '{}');
-              var theme = settings.theme || localStorage.getItem('theme') || 'system';
+              var theme = ${JSON.stringify(theme)};
               var isDark = theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
               if (isDark) document.documentElement.classList.add('dark');
             } catch (e) {}
@@ -110,6 +106,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <ThemeSync />
+        <BrowserDataMigration />
         {children}
         <Toaster position="bottom-center" />
         <TanStackDevtools

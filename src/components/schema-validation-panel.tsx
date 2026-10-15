@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -19,7 +20,13 @@ import {
   CardHeader,
   CardTitle,
 } from "#/components/ui/card";
-import { PropertyMappingDialog } from "#/components/property-mapping-dialog";
+import {
+  parseSavedMapping,
+  PropertyMappingDialog,
+  savedMappingKey,
+  type SavedMapping,
+} from "#/components/property-mapping-dialog";
+import { getUserDataFn } from "#/lib/auth-functions";
 import { SearchableSelect } from "#/components/searchable-select";
 import { getLayerColor } from "#/lib/layer-colors";
 import { getSchemaEntry, schemaRegistry } from "#/lib/gis-schemas";
@@ -103,8 +110,22 @@ export function SchemaValidationPanel({
 }: SchemaValidationPanelProps) {
   const [mappingLayer, setMappingLayer] = useState<string | null>(null);
   const [mappingSessionId, setMappingSessionId] = useState(0);
+  const [mappingSaved, setMappingSaved] = useState<SavedMapping | null>(null);
 
-  function openMapping(layer: string) {
+  // Saved progress lives on the member's account, so it's fetched first and
+  // the dialog opens with it already in place.
+  async function openMapping(layer: string) {
+    const entry = getSchemaEntry(layerSchemaIds[layer]);
+    let saved: SavedMapping | null = null;
+    if (entry) {
+      try {
+        const { value } = await getUserDataFn({ data: { key: savedMappingKey(entry.id, layer) } });
+        saved = parseSavedMapping(value);
+      } catch {
+        toast.error("Couldn't load your saved progress — starting from the suggestions.");
+      }
+    }
+    setMappingSaved(saved);
     setMappingLayer(layer);
     setMappingSessionId((id) => id + 1);
   }
@@ -159,6 +180,7 @@ export function SchemaValidationPanel({
           schema={mappingSchemaEntry.schema}
           sourceKeys={mappingSourceKeys}
           features={mappingFeatures}
+          saved={mappingSaved}
           onApply={(renameMap) => {
             onApplyRename(mappingLayer, renameMap);
             setMappingLayer(null);

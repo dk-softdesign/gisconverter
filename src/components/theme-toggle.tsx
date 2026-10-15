@@ -1,11 +1,12 @@
 import { Moon, Sun } from "lucide-react";
 
 import { Button } from "#/components/ui/button";
-import { updateSettings, useResolvedTheme } from "#/lib/settings";
+import { useResolvedTheme, useUpdateSettings } from "#/lib/settings";
 
 // Quick switch between light and dark; "System" is chosen in Settings.
 export function ThemeToggle({ className }: { className?: string }) {
   const isDark = useResolvedTheme() === "dark";
+  const updateSettings = useUpdateSettings();
 
   return (
     <Button

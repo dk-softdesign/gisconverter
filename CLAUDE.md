@@ -56,8 +56,11 @@ help` lists targets; the main ones are `make image`, `make run` (port 3000, over
   the UI then offers a properties-only import and retries with `allowNoGeometry`.
 - `src/lib/crs.ts` — the curated list of source CRSs (Danish projections first); reprojection
   goes through proj4 in `src/lib/reproject.ts`.
-- `src/lib/settings.ts` — user settings (theme, defaults, export options) in localStorage,
-  read via `useSettings()`.
+- `src/lib/settings.ts` — user settings (theme, defaults, export options); `useSettings()` /
+  `useUpdateSettings()`. Like bulk-edit presets and Match property names progress, they're
+  stored per member on the server (`user_data` table, `src/lib/user-data.ts`), not in the
+  browser — keep new per-user state there too. Settings and presets arrive with the page via
+  the auth query, so the theme is applied server-side without a flash.
 
 ### Login and members
 
@@ -89,12 +92,15 @@ The whole app requires login. Roles: `admin` (can manage members) and `member`.
 - Path aliases `#/*` and `@/*` both resolve to `src/*`; the codebase uses `#/`.
 - Add shadcn components with `npx shadcn@latest add <component>`.
 - Keep it lean: no new abstractions, config files or dependencies beyond what a task needs.
+- User-facing changes get an entry in `CHANGELOG.md` (newest date first, plain language, "Added"
+  / "Changed" / "Fixed"). It's bundled into the app and shown by the header's Changelog button.
 - `wkx` has hand-written types in `src/types/wkx.d.ts`; a TypeScript 7 checker bug means
   callers must cast the result of `Geometry.parse()` (see the comment there).
 
 ## Git
 
-- No remote yet: commit locally, don't push or add a remote unless asked.
+- Remote: `origin` (GitHub, `dk-softdesign/gisconverter`), working directly on `main`. Push only
+  when asked.
 - Don't commit generated directories (`node_modules`, `.output`, `.nitro`, `.tanstack`, …).
 
 <!-- Everything between the markers below is managed by Vite+ (`vp config`, run on
