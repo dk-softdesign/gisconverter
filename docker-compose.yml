@@ -11,6 +11,9 @@ services:
     ports:
       - "6228:3000"
 
+    networks:
+      - synchronicer
+
     # Read from the deploying shell, e.g. `ANTHROPIC_API_KEY=... docker stack deploy ...`.
     # Without it the app still runs; only the "Ask Claude" helpers are disabled.
 
@@ -56,3 +59,8 @@ volumes:
       type: "nfs"
       device: ":/volume1/${APP_ENV:?Set APP_ENV (e.g. production) to choose the NAS folder}/gisconverter"
       o: "addr=192.168.206.249,nfsvers=4"
+
+networks:
+  synchronicer:
+    name: synchronicer
+    external: true
