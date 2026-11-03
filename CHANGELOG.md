@@ -6,6 +6,10 @@ What's new in GIS Converter, newest first.
 
 ### Added
 
+- **Download as KML.** Next to _Download GeoJSON_ there's now a _Download KML_ button, for
+  opening the result in Google Earth and other KML tools. Each layer becomes a folder in its
+  legend color, and all properties are kept. The coordinate rounding export option applies too.
+
 - **Forgot your password?** The sign-in page has a link to reset your password yourself. Enter
   your email and you'll get a link to choose a new one. The link works once and expires after
   1 hour. Admins can still create sign-in links from the Members page.

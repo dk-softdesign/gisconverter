@@ -52,6 +52,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { requireSignedIn } from "#/lib/auth-query";
 import { collectFilesFromDataTransfer } from "#/lib/collect-files";
 import { SUPPORTED_SOURCE_CRS } from "#/lib/crs";
+import { geojsonToKml } from "#/lib/geojson-to-kml";
 import { groupNameOf, ISSUE_COLORS } from "#/lib/layer-colors";
 import type { PropertyRecord } from "#/lib/property-value";
 import { getSchemaEntry } from "#/lib/gis-schemas";
@@ -716,24 +717,45 @@ function Home() {
     setActiveTab(settings.defaultTab);
   }
 
-  function downloadGeoJson() {
-    if (!result) return;
-    const output =
-      settings.coordinatePrecision === null
-        ? result.featureCollection
-        : roundCoordinates(result.featureCollection, settings.coordinatePrecision);
-    const blob = new Blob([JSON.stringify(output, null, settings.prettyPrint ? 2 : undefined)], {
-      type: "application/geo+json; charset=utf-8",
-    });
+  function exportedFeatureCollection(): GeoJSON.FeatureCollection | null {
+    if (!result) return null;
+    return settings.coordinatePrecision === null
+      ? result.featureCollection
+      : roundCoordinates(result.featureCollection, settings.coordinatePrecision);
+  }
+
+  function exportBaseName(): string {
+    const baseName =
+      files[0]?.name.replace(/\.(dxf|zip|xlsx|geojson|json|kml|kmz|gpkg)$/i, "") ?? "converted";
+    return files.length > 1 ? `${baseName}-and-${files.length - 1}-more` : baseName;
+  }
+
+  function downloadBlob(blob: Blob, fileName: string) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    const baseName =
-      files[0]?.name.replace(/\.(dxf|zip|xlsx|geojson|json|kml|kmz)$/i, "") ?? "converted";
-    link.download =
-      files.length > 1 ? `${baseName}-and-${files.length - 1}-more.geojson` : `${baseName}.geojson`;
+    link.download = fileName;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  function downloadGeoJson() {
+    const output = exportedFeatureCollection();
+    if (!output) return;
+    const blob = new Blob([JSON.stringify(output, null, settings.prettyPrint ? 2 : undefined)], {
+      type: "application/geo+json; charset=utf-8",
+    });
+    downloadBlob(blob, `${exportBaseName()}.geojson`);
+  }
+
+  function downloadKml() {
+    const output = exportedFeatureCollection();
+    if (!output) return;
+    const baseName = exportBaseName();
+    const blob = new Blob([geojsonToKml(output, baseName)], {
+      type: "application/vnd.google-earth.kml+xml; charset=utf-8",
+    });
+    downloadBlob(blob, `${baseName}.kml`);
   }
 
   return (
@@ -859,6 +881,11 @@ function Home() {
                     </Button>
                   )}
                   {result && (
+                    <Button type="button" variant="secondary" onClick={downloadKml}>
+                      Download KML
+                    </Button>
+                  )}
+                  {result && (
                     // Changed their mind about replacing the current data.
                     <Button
                       type="button"
@@ -949,6 +976,10 @@ function Home() {
                 <Button type="button" onClick={downloadGeoJson}>
                   <Download />
                   Download GeoJSON
+                </Button>
+                <Button type="button" variant="secondary" onClick={downloadKml}>
+                  <Download />
+                  Download KML
                 </Button>
                 <Button type="button" variant="outline" onClick={() => setIsUploadCollapsed(false)}>
                   <FolderOpen />
