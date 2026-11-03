@@ -77,8 +77,12 @@ The whole app requires login. Roles: `admin` (can manage members) and `member`.
   and `auth.ts` (scrypt password hashes, session and invite tokens stored only as SHA-256
   hashes). Import it lazily from server code (`await import(...)`) so it stays out of the
   client bundle.
-- Pages: `/login`, `/setup`, `/invite/$token` (invite and password-reset links), `/members`.
-  New members get a one-time link from an admin; there is no email sending.
+- Pages: `/login`, `/setup`, `/forgot-password`, `/invite/$token` (invite and password-reset
+  links), `/members`. New members get a one-time link from an admin. Forgotten passwords can
+  also be reset by email: `/forgot-password` mails a 1-hour link through the SMTP relay
+  (`src/lib/server/mail.ts`; `SMTP_HOST` defaults to `mrelay.softdesign.dk`, plus `SMTP_PORT`,
+  `SMTP_FROM`, optional `SMTP_USER`/`SMTP_PASSWORD`). Set `APP_URL` in production so the link
+  doesn't come from the request's Host header.
 - Database location: `DATABASE_PATH` (default `data/gisconverter.db`, gitignored). In Docker
   it's `/app/data`; on the swarm that's the `sdnas` NFS volume (see `docker-compose.yml`), so
   it survives redeploys on any node. Because it can sit on NFS, SQLite runs with a rollback

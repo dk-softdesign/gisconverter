@@ -4,6 +4,7 @@ import {
   getCookie,
   getRequestIP,
   getRequestProtocol,
+  getRequestUrl,
   setCookie,
 } from "@tanstack/react-start/server";
 
@@ -14,6 +15,8 @@ const SESSION_COOKIE = "gis_session";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SESSION_TTL_MS = 30 * DAY_MS;
 const INVITE_TTL_MS = 7 * DAY_MS;
+// Self-service reset links travel by email, so they're kept short-lived.
+const EMAIL_RESET_TTL_MS = 60 * 60 * 1000;
 
 // ---- passwords ---------------------------------------------------------
 
@@ -263,7 +266,10 @@ export function describeInvite(token: string) {
 // and signs out any other sessions (a reset usually means "lost access").
 export async function acceptInvite(token: string, password: string) {
   const user = findUserByInvite(token);
-  if (!user) throw new Error("This link is invalid or has expired. Ask an admin for a new one.");
+  if (!user)
+    throw new Error(
+      "This link is invalid or has expired. Request a new one from the sign-in page.",
+    );
   const passwordHash = await hashPassword(password);
   getDb()
     .prepare(
@@ -276,12 +282,80 @@ export async function acceptInvite(token: string, password: string) {
 
 // Returns the raw token; only its hash is stored, so this is the one chance
 // to hand it out.
-function issueInvite(userId: number): string {
+function issueInvite(userId: number, ttlMs = INVITE_TTL_MS): string {
   const token = newToken();
   getDb()
     .prepare("UPDATE users SET invite_token_hash = ?, invite_expires_at = ? WHERE id = ?")
-    .run(hashToken(token), Date.now() + INVITE_TTL_MS, userId);
+    .run(hashToken(token), Date.now() + ttlMs, userId);
   return token;
+}
+
+// ---- forgotten password ------------------------------------------------
+
+const RESET_WINDOW_MS = 15 * 60 * 1000;
+const MAX_RESETS_PER_EMAIL = 3;
+const MAX_RESETS_PER_IP = 10;
+// In-memory and per process, like the login throttle: stops the form being
+// used to flood someone's inbox.
+const resetRequests = new Map<string, { count: number; since: number }>();
+
+function overResetLimit(key: string, max: number, now: number): boolean {
+  const current = resetRequests.get(key);
+  const entry =
+    current && now - current.since < RESET_WINDOW_MS ? current : { count: 0, since: now };
+  entry.count += 1;
+  resetRequests.set(key, entry);
+  return entry.count > max;
+}
+
+// Links in emails point at APP_URL when set. Without it they use the address
+// the request came in on — fine for development, but set APP_URL in
+// production so a forged Host header can't point a link elsewhere.
+function appOrigin(): string {
+  const configured = process.env.APP_URL?.trim().replace(/\/+$/, "");
+  return configured || getRequestUrl({ xForwardedHost: true, xForwardedProto: true }).origin;
+}
+
+// Emails a one-time link for choosing a new password. Returns an error only
+// for throttling: unknown or disabled emails look exactly like a sent link,
+// and the mail goes out in the background, so neither the answer nor its
+// timing reveals who has an account.
+export function requestPasswordReset(email: string): string | null {
+  const normalized = normalizeEmail(email);
+  const now = Date.now();
+  const ip = getRequestIP({ xForwardedFor: true }) ?? "unknown";
+  if (
+    overResetLimit(`ip|${ip}`, MAX_RESETS_PER_IP, now) ||
+    overResetLimit(`email|${normalized}`, MAX_RESETS_PER_EMAIL, now)
+  ) {
+    return "Too many requests. Try again in 15 minutes.";
+  }
+
+  const user = getDb().prepare("SELECT * FROM users WHERE email = ?").get(normalized) as
+    | UserRow
+    | undefined;
+  if (!user || user.disabled) return null;
+
+  const link = `${appOrigin()}/invite/${issueInvite(user.id, EMAIL_RESET_TTL_MS)}`;
+  const action = user.password_hash ? "choose a new password" : "set up your account";
+  void import("#/lib/server/mail")
+    .then(({ sendMail }) =>
+      sendMail({
+        to: user.email,
+        subject: "Reset your GIS Converter password",
+        text: [
+          `Hi ${user.name},`,
+          "",
+          `Someone asked to reset the password for your GIS Converter account. Open this link to ${action}:`,
+          "",
+          link,
+          "",
+          "The link works once and expires in 1 hour. If you didn't ask for this, ignore this email — your password stays the same.",
+        ].join("\n"),
+      }),
+    )
+    .catch((error: unknown) => console.error("Password reset email failed:", error));
+  return null;
 }
 
 // ---- member maintenance (callers must check the admin role) -------------

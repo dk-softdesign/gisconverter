@@ -9,7 +9,7 @@ const csrfMiddleware = createCsrfMiddleware({
     (ctx.pathname.startsWith("/api/") && ctx.request.method !== "GET"),
 });
 
-const PUBLIC_PAGES = ["/login", "/setup"];
+const PUBLIC_PAGES = ["/login", "/setup", "/forgot-password"];
 const PUBLIC_PREFIXES = ["/invite/"];
 const PUBLIC_API = ["/api/health"];
 

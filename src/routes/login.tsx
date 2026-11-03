@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 
 import { AuthPage } from "#/components/auth-page";
 import { FormField } from "#/components/form-field";
@@ -71,7 +71,10 @@ function LoginPage() {
           {submitting ? "Signing in…" : "Sign in"}
         </Button>
         <p className="text-xs text-muted-foreground">
-          No account, or forgot your password? Ask an admin for a sign-in link.
+          <Link to="/forgot-password" search={{ email: email || undefined }}>
+            Forgot your password?
+          </Link>{" "}
+          No account? Ask an admin for an invite.
         </p>
       </form>
     </AuthPage>

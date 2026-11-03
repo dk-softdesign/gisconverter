@@ -20,13 +20,20 @@ function InvitePage() {
     return (
       <AuthPage
         title="Link not valid"
-        description="This link has expired or has already been used. Ask an admin for a new one."
+        description="This link has expired or has already been used. Request a new one, or ask an admin."
       >
-        <Button asChild variant="outline" className="w-full">
-          <Link to="/login" className="text-foreground! no-underline">
-            Go to sign in
-          </Link>
-        </Button>
+        <div className="flex flex-col gap-2">
+          <Button asChild className="w-full">
+            <Link to="/forgot-password" className="text-primary-foreground! no-underline">
+              Send a new link
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="w-full">
+            <Link to="/login" className="text-foreground! no-underline">
+              Go to sign in
+            </Link>
+          </Button>
+        </div>
       </AuthPage>
     );
   }

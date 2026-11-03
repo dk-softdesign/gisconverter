@@ -131,6 +131,13 @@ export const setupFn = createServerFn({ method: "POST" })
     }),
   );
 
+export const requestPasswordResetFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => ({ email: email(record(data).email) }))
+  .handler(async ({ data }): Promise<Result> => {
+    const error = (await auth()).requestPasswordReset(data.email);
+    return error ? { ok: false, error } : { ok: true };
+  });
+
 export const getInviteFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => ({ token: nonEmpty(record(data).token, "Token", 100) }))
   .handler(async ({ data }) => (await auth()).describeInvite(data.token));

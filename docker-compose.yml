@@ -17,6 +17,9 @@ services:
     environment:
       - APP_ENV=${APP_ENV}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - SMTP_PORT=${SMTP_PORT:-25}
+      - SMTP_HOST=${SMTP_HOST:-mrelay.softdesign.dk}
+      - APP_URL=${APP_URL:-}
 
     # Members, sessions and per-member data (SQLite) on the NAS, so the data is
     # the same whichever node the service runs on.

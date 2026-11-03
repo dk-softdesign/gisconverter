@@ -2,6 +2,14 @@
 
 What's new in GIS Converter, newest first.
 
+## 2026-11-03
+
+### Added
+
+- **Forgot your password?** The sign-in page has a link to reset your password yourself. Enter
+  your email and you'll get a link to choose a new one. The link works once and expires after
+  1 hour. Admins can still create sign-in links from the Members page.
+
 ## 2026-10-15
 
 ### Added
