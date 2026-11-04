@@ -6,6 +6,11 @@ What's new in GIS Converter, newest first.
 
 ### Added
 
+- **Invites are emailed.** When an admin invites a member, the invite link is now sent to them
+  by email — no more copying and forwarding it. _Resend invite_ and _Reset password_ on the
+  Members page email the new link too. The link is still shown, in case the email doesn't
+  arrive.
+
 - **Download as KML.** Next to _Download GeoJSON_ there's now a _Download KML_ button, for
   opening the result in Google Earth and other KML tools. Each layer becomes a folder in its
   legend color, and all properties are kept. The coordinate rounding export option applies too.
@@ -13,6 +18,14 @@ What's new in GIS Converter, newest first.
 - **Forgot your password?** The sign-in page has a link to reset your password yourself. Enter
   your email and you'll get a link to choose a new one. The link works once and expires after
   1 hour. Admins can still create sign-in links from the Members page.
+
+### Fixed
+
+- **KML descriptions show as text.** Descriptions written as HTML (common in files from Google
+  Earth and ArcGIS) were shown as "[object Object]". They now show as readable text in the list
+  and the map popup — hover a cell to see all of it — while the HTML itself is kept unchanged,
+  so a KML download is the same as the original. Long values get a bigger box in _Edit
+  properties_.
 
 ## 2026-10-15
 

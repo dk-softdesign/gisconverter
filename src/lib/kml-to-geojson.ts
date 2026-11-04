@@ -41,6 +41,25 @@ function parseKml(text: string): Root {
   return kmlWithFolders(doc);
 }
 
+// togeojson returns a few properties as objects: a <description> wrapped in
+// CDATA (usually HTML) becomes { "@type": "html", value }, and a <TimeSpan>
+// becomes { begin, end }. The rest of the app expects plain values, so the
+// HTML description keeps just its text (markup included) and any other object
+// is stored as JSON, instead of showing up as "[object Object]".
+function flattenProperties(properties: GeoJSON.GeoJsonProperties): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(properties ?? {})) {
+    if (value === null || typeof value !== "object") {
+      result[key] = value;
+    } else if ("@type" in value && "value" in value && typeof value.value === "string") {
+      result[key] = value.value;
+    } else {
+      result[key] = JSON.stringify(value);
+    }
+  }
+  return result;
+}
+
 // KML is always WGS 84 lon/lat (the spec allows nothing else), so unlike the
 // other formats there's no source CRS to apply. Folders become the `layer`
 // property (nested ones joined with " / ") so they slot into the existing
@@ -66,7 +85,7 @@ export async function convertKmlToGeoJson(
         visit(folder.children, name ? [...path, name] : path);
         continue;
       }
-      const properties = child.properties ?? {};
+      const properties = flattenProperties(child.properties);
       const layer = path.length > 0 ? path.join(" / ") : baseName;
       if (!child.geometry) {
         withoutGeometry.push(

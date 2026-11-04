@@ -365,7 +365,11 @@ export function listMembers(): Member[] {
   return (rows as unknown as UserRow[]).map(toMember);
 }
 
-export function inviteMember(email: string, name: string, role: Role): string {
+export function inviteMember(
+  email: string,
+  name: string,
+  role: Role,
+): { userId: number; token: string } {
   const normalized = normalizeEmail(email);
   const userId = transaction((db) => {
     if (db.prepare("SELECT 1 FROM users WHERE email = ?").get(normalized)) {
@@ -376,7 +380,7 @@ export function inviteMember(email: string, name: string, role: Role): string {
       .run(normalized, name.trim(), role, Date.now());
     return Number(result.lastInsertRowid);
   });
-  return issueInvite(userId);
+  return { userId, token: issueInvite(userId) };
 }
 
 export function newSignInLink(userId: number): string {
@@ -384,6 +388,40 @@ export function newSignInLink(userId: number): string {
   if (!user) throw new Error("Member not found.");
   if (user.disabled) throw new Error("Enable this member first.");
   return issueInvite(userId);
+}
+
+// Emails an admin-issued invite or sign-in link to the member. Unlike the
+// self-service reset, this waits for the relay and reports failure, so the
+// admin knows to send the link some other way.
+export async function emailSignInLink(userId: number, token: string): Promise<boolean> {
+  const user = findUserById(userId);
+  if (!user) return false;
+  const link = `${appOrigin()}/invite/${token}`;
+  const isInvite = !user.password_hash;
+  try {
+    const { sendMail } = await import("#/lib/server/mail");
+    await sendMail({
+      to: user.email,
+      subject: isInvite
+        ? "You're invited to GIS Converter"
+        : "Choose a new password for GIS Converter",
+      text: [
+        `Hi ${user.name},`,
+        "",
+        isInvite
+          ? "You've been invited to GIS Converter. Open this link to choose your password and sign in:"
+          : "An admin created a link for you to choose a new GIS Converter password:",
+        "",
+        link,
+        "",
+        "The link works once and expires in 7 days.",
+      ].join("\n"),
+    });
+    return true;
+  } catch (error) {
+    console.error("Sign-in link email failed:", error);
+    return false;
+  }
 }
 
 function activeAdminCount(db: ReturnType<typeof getDb>): number {

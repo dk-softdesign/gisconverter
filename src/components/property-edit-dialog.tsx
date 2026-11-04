@@ -11,7 +11,8 @@ import {
   DialogTitle,
 } from "#/components/ui/dialog";
 import { Input } from "#/components/ui/input";
-import { coercePropertyValue, propertyValueToInputString } from "#/lib/property-value";
+import { Textarea } from "#/components/ui/textarea";
+import { coercePropertyValue, isHtmlValue, propertyValueToInputString } from "#/lib/property-value";
 
 interface PropertyEditDialogProps {
   feature: GeoJSON.Feature | null;
@@ -93,11 +94,20 @@ export function PropertyEditDialog({
               <span className="w-32 shrink-0 truncate text-sm font-medium" title={entry.key}>
                 {entry.key}
               </span>
-              <Input
-                value={entry.value}
-                onChange={(e) => updateValue(entry.id, e.target.value)}
-                className="flex-1"
-              />
+              {/* Long, multi-line or HTML values (KML descriptions) get room to be read. */}
+              {isHtmlValue(entry.value) || entry.value.includes("\n") || entry.value.length > 60 ? (
+                <Textarea
+                  value={entry.value}
+                  onChange={(e) => updateValue(entry.id, e.target.value)}
+                  className="max-h-48 flex-1 font-mono text-xs md:text-xs"
+                />
+              ) : (
+                <Input
+                  value={entry.value}
+                  onChange={(e) => updateValue(entry.id, e.target.value)}
+                  className="flex-1"
+                />
+              )}
               <Button
                 type="button"
                 variant="ghost"

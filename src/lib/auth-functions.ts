@@ -189,15 +189,23 @@ export const inviteMemberFn = createServerFn({ method: "POST" })
     };
   })
   .handler(({ data }) =>
-    attempt(async () => ({
-      token: (await auth()).inviteMember(data.email, data.name, data.role),
-    })),
+    attempt(async () => {
+      const server = await auth();
+      const { userId, token } = server.inviteMember(data.email, data.name, data.role);
+      return { token, emailed: await server.emailSignInLink(userId, token) };
+    }),
   );
 
 export const newSignInLinkFn = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
   .validator((data: unknown) => ({ id: id(record(data).id) }))
-  .handler(({ data }) => attempt(async () => ({ token: (await auth()).newSignInLink(data.id) })));
+  .handler(({ data }) =>
+    attempt(async () => {
+      const server = await auth();
+      const token = server.newSignInLink(data.id);
+      return { token, emailed: await server.emailSignInLink(data.id, token) };
+    }),
+  );
 
 export const updateMemberFn = createServerFn({ method: "POST" })
   .middleware([requireAdmin])

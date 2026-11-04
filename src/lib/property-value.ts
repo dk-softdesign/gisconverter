@@ -35,3 +35,62 @@ export function dateToPropertyValue(date: Date, clock: "utc" | "local"): string 
   const iso = date.toISOString();
   return iso.endsWith("T00:00:00.000Z") ? iso.slice(0, 10) : iso;
 }
+
+// Some values are HTML — most often KML descriptions from Google Earth or
+// ArcGIS. For display only, turn them into readable text: line breaks for
+// block elements, " | " between table cells. The stored value is never
+// changed, so an export writes the HTML back exactly as it was read. Parsed
+// with DOMParser as an inert document (no scripts run, nothing is fetched)
+// and only text is read out, so the markup can't affect the page.
+const LOOKS_LIKE_HTML = /<\/?[a-z][a-z0-9]*(\s[^<>]*)?\/?>/i;
+const BLOCK_TAGS = new Set([
+  "BR",
+  "P",
+  "DIV",
+  "TR",
+  "LI",
+  "UL",
+  "OL",
+  "TABLE",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+]);
+const SKIPPED_TAGS = new Set(["SCRIPT", "STYLE", "HEAD", "TITLE"]);
+
+export function isHtmlValue(value: unknown): boolean {
+  return typeof value === "string" && LOOKS_LIKE_HTML.test(value);
+}
+
+export function propertyValueToDisplayText(value: unknown): string {
+  const text = propertyValueToInputString(value);
+  if (!LOOKS_LIKE_HTML.test(text) || typeof DOMParser === "undefined") return text;
+  const body = new DOMParser().parseFromString(text, "text/html").body;
+  let out = "";
+  const walk = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      out += (node.textContent ?? "").replace(/\s+/g, " ");
+      return;
+    }
+    if (!(node instanceof Element)) return;
+    const tag = node.tagName.toUpperCase();
+    if (SKIPPED_TAGS.has(tag)) return;
+    if (tag === "TD" || tag === "TH") {
+      // A row starts on a new line, so only later cells get a separator.
+      if (out && !out.endsWith("\n")) out += " | ";
+    } else if (BLOCK_TAGS.has(tag)) {
+      out += "\n";
+    }
+    for (const child of Array.from(node.childNodes)) walk(child);
+    if (BLOCK_TAGS.has(tag)) out += "\n";
+  };
+  walk(body);
+  return out
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n");
+}

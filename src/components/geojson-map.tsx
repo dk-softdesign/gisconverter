@@ -3,6 +3,7 @@ import L, { type Layer, type StyleFunction } from "leaflet";
 import { GeoJSON as GeoJsonLayer, MapContainer, TileLayer, useMap } from "react-leaflet";
 
 import { getLayerColor, groupNameOf, ISSUE_COLORS } from "#/lib/layer-colors";
+import { propertyValueToDisplayText } from "#/lib/property-value";
 import type { IssueSeverity } from "#/lib/schema-validation";
 import type { Basemap } from "#/lib/settings";
 
@@ -185,7 +186,10 @@ function bindInspectPopup(feature: GeoJSON.Feature, layer: Layer) {
       keyEl.className = "text-muted-foreground";
       keyEl.textContent = key;
       const valueEl = document.createElement("span");
-      valueEl.textContent = String(value);
+      // Long or HTML values (KML descriptions) keep their line breaks and
+      // scroll instead of stretching the popup.
+      valueEl.className = "max-h-40 overflow-y-auto whitespace-pre-line break-words";
+      valueEl.textContent = propertyValueToDisplayText(value);
       table.append(keyEl, valueEl);
     }
     container.appendChild(table);

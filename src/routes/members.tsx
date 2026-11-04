@@ -70,16 +70,21 @@ function inviteUrl(token: string): string {
   return `${window.location.origin}/invite/${token}`;
 }
 
+// A freshly issued invite or sign-in link, and whether it was emailed.
+interface IssuedLink {
+  member: string;
+  email: string;
+  url: string;
+  isReset: boolean;
+  emailed: boolean;
+}
+
 function MembersPage() {
   const { members, me } = Route.useLoaderData();
   const router = useRouter();
   const [inviteOpen, setInviteOpen] = useState(false);
   // The link to show after inviting someone or issuing a new sign-in link.
-  const [issuedLink, setIssuedLink] = useState<{
-    member: string;
-    url: string;
-    isReset: boolean;
-  } | null>(null);
+  const [issuedLink, setIssuedLink] = useState<IssuedLink | null>(null);
 
   const refresh = () => router.invalidate();
 
@@ -121,11 +126,13 @@ function MembersPage() {
                       member={member}
                       isMe={member.id === me.id}
                       onChanged={refresh}
-                      onLinkIssued={(url) =>
+                      onLinkIssued={(url, emailed) =>
                         setIssuedLink({
                           member: member.name,
+                          email: member.email,
                           url,
                           isReset: member.status === "active",
+                          emailed,
                         })
                       }
                     />
@@ -140,9 +147,9 @@ function MembersPage() {
       <InviteDialog
         open={inviteOpen}
         onOpenChange={setInviteOpen}
-        onInvited={(name, url) => {
+        onInvited={(name, email, url, emailed) => {
           setInviteOpen(false);
-          setIssuedLink({ member: name, url, isReset: false });
+          setIssuedLink({ member: name, email, url, isReset: false, emailed });
           void refresh();
         }}
       />
@@ -172,7 +179,7 @@ function MemberRow({
   member: Member;
   isMe: boolean;
   onChanged: () => void;
-  onLinkIssued: (url: string) => void;
+  onLinkIssued: (url: string, emailed: boolean) => void;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -188,7 +195,7 @@ function MemberRow({
     try {
       const result = await newSignInLinkFn({ data: { id: member.id } });
       if (result.ok) {
-        onLinkIssued(inviteUrl(result.token));
+        onLinkIssued(inviteUrl(result.token), result.emailed);
         onChanged();
       } else {
         toast.error(result.error);
@@ -276,12 +283,12 @@ function MemberRow({
                 onClick={issueLink}
                 title={
                   member.status === "invited"
-                    ? "Create a new invite link (the old one stops working)"
-                    : "Create a link to set a new password"
+                    ? "Email a new invite link (the old one stops working)"
+                    : "Email a link to set a new password"
                 }
               >
                 <Link2 />
-                {member.status === "invited" ? "New invite link" : "Reset password"}
+                {member.status === "invited" ? "Resend invite" : "Reset password"}
               </Button>
             )}
             <Button
@@ -325,7 +332,7 @@ function InviteDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onInvited: (name: string, url: string) => void;
+  onInvited: (name: string, email: string, url: string, emailed: boolean) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -333,7 +340,7 @@ function InviteDialog({
         <DialogHeader>
           <DialogTitle>Invite member</DialogTitle>
           <DialogDescription>
-            You&apos;ll get a one-time link to send them. They choose their own password.
+            They&apos;ll get an email with a one-time link to choose their own password.
           </DialogDescription>
         </DialogHeader>
         {/* Mounted only while open, so the form starts empty every time. */}
@@ -348,7 +355,7 @@ function InviteForm({
   onInvited,
 }: {
   onCancel: () => void;
-  onInvited: (name: string, url: string) => void;
+  onInvited: (name: string, email: string, url: string, emailed: boolean) => void;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -362,7 +369,7 @@ function InviteForm({
     setError(null);
     try {
       const result = await inviteMemberFn({ data: { name, email, role } });
-      if (result.ok) onInvited(name.trim(), inviteUrl(result.token));
+      if (result.ok) onInvited(name.trim(), email.trim(), inviteUrl(result.token), result.emailed);
       else setError(result.error);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Something went wrong.");
@@ -402,20 +409,14 @@ function InviteForm({
           Cancel
         </Button>
         <Button type="submit" disabled={saving}>
-          {saving ? "Inviting…" : "Create invite link"}
+          {saving ? "Inviting…" : "Send invite"}
         </Button>
       </DialogFooter>
     </form>
   );
 }
 
-function LinkDialog({
-  link,
-  onClose,
-}: {
-  link: { member: string; url: string; isReset: boolean } | null;
-  onClose: () => void;
-}) {
+function LinkDialog({ link, onClose }: { link: IssuedLink | null; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   // Keeps showing the last link while the dialog animates closed, instead of
   // flashing "undefined" once `link` is cleared.
@@ -445,8 +446,11 @@ function LinkDialog({
               : `Invite link for ${shown?.member}`}
           </DialogTitle>
           <DialogDescription>
-            Send this link to {shown?.member}. It works once and expires in 7 days. It won&apos;t be
-            shown again — you can always create a new one.
+            {shown?.emailed
+              ? `We've emailed this link to ${shown.email}. You can also copy it and send it yourself.`
+              : `The email to ${shown?.email} couldn't be sent — copy the link and send it to ${shown?.member} yourself.`}{" "}
+            It works once and expires in 7 days. It won&apos;t be shown again — you can always
+            create a new one.
           </DialogDescription>
         </DialogHeader>
         <div className="flex gap-2">

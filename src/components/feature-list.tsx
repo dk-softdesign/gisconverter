@@ -6,6 +6,7 @@ import { Pencil, Trash2, Undo2 } from "lucide-react";
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
 import { Input } from "#/components/ui/input";
+import { propertyValueToDisplayText } from "#/lib/property-value";
 import { cn } from "#/lib/utils";
 
 interface FeatureListProps {
@@ -36,10 +37,16 @@ const INDEX_COLUMN: Column = { key: "__index", label: "#", width: 56 };
 const GEOMETRY_COLUMN: Column = { key: "__geometryType", label: "Geometry", width: 110 };
 const PROPERTY_COLUMN_WIDTH = 180;
 
+// One line in the cell; HTML values (e.g. KML descriptions) show as text.
 function formatCellValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "boolean") return value ? "true" : "false";
-  return String(value);
+  return propertyValueToDisplayText(value).replace(/\n/g, " · ");
+}
+
+// The full text on hover, line breaks kept, for values too long for the cell.
+function cellTitle(value: unknown): string | undefined {
+  const text = propertyValueToDisplayText(value);
+  return text.length > 20 || text.includes("\n") ? text : undefined;
 }
 
 export function FeatureList({
@@ -145,6 +152,7 @@ export function FeatureList({
                         "bg-destructive/5 text-muted-foreground line-through",
                     )}
                     style={{ width: column.width }}
+                    title={column.isProperty ? cellTitle(properties[column.key]) : undefined}
                   >
                     {column.key === "__checkbox" ? (
                       <Checkbox
@@ -168,7 +176,7 @@ export function FeatureList({
                     ) : column.key === "__geometryType" ? (
                       (feature.geometry?.type ?? "None")
                     ) : (
-                      formatCellValue(properties[column.key])
+                      <span className="truncate">{formatCellValue(properties[column.key])}</span>
                     )}
                   </div>
                 ))}
